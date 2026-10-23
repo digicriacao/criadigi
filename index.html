@@ -107,6 +107,10 @@
           <span class="editor-info" id="editor-info"></span>
           <div class="editor-acoes">
             <button type="button" class="btn btn-sm btn-primario" id="salvar-edicao" hidden>Salvar em Minhas criações</button>
+            <button type="button" class="btn btn-sm btn-ghost botao-versoes" id="botao-versoes" title="Versões desta peça" aria-pressed="false">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>
+              Versões <span class="cont" id="versoes-cont"></span>
+            </button>
             <button type="button" class="icone" id="botao-guias" title="Guias e alinhamento" aria-label="Guias e alinhamento" aria-pressed="false">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 3v18M3 15h18" stroke-dasharray="2.5 2.5"/><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
             </button>
@@ -125,6 +129,10 @@
             <button type="button" class="btn btn-sm btn-ghost" id="cancelar-recorte">Cancelar</button>
             <button type="button" class="btn btn-sm btn-primario" id="aplicar-recorte">Aplicar recorte</button>
           </div>
+        </div>
+        <div class="barra-versoes" id="barra-versoes" hidden>
+          <div class="barra-versoes-topo"><b>Versões desta peça</b><span class="ajuda">Clique numa versão para voltar a ela. Nada é apagado: a versão atual continua na lista.</span></div>
+          <div class="versoes-lista" id="versoes-lista"></div>
         </div>
         <div class="barra-guias" id="barra-guias" hidden>
           <span class="barra-guias-titulo">Guias</span>

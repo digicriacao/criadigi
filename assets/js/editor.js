@@ -22,6 +22,9 @@
       this._raf = 0;
       this._baseSuja = true;
       this.baseCache = document.createElement("canvas");
+      // imagens de fundo já usadas nesta peça (o desfazer volta também a imagem, ex.: depois de um refino)
+      this.fontes = new Map();   // id -> HTMLImageElement
+      this.srcId = null;
       // guias: só aparecem para quem edita (nunca saem na imagem baixada)
       this.guias = carregarGuias();      // [{ id, eixo: "v" | "h", pos: 0..1 }]
       this.mostrarGuias = true;
@@ -57,6 +60,8 @@
       this._resetar();
       this.logo = manterCamadas.logo;
       this.src = img;
+      this.fontes = new Map();
+      this.srcId = this._guardarFonte(img);
       this._refazerFonte();
       if (formato) this.definirFormato(formato.w, formato.h, false);
       else {
@@ -74,6 +79,7 @@
     async trocarBase(src) {
       const img = await window.CriaDigi.carregarImagem(src);
       this.src = img;
+      this.srcId = this._guardarFonte(img);
       this.rot = 0; this.flipH = false; this.flipV = false;
       this._refazerFonte();
       this.crop = this._cobrir(this.out.w / this.out.h);
@@ -83,6 +89,37 @@
     }
 
     registrarLogo(id, img) { this.logos.set(id, img); }
+
+    _guardarFonte(img) {
+      for (const [id, x] of this.fontes) if (x === img) return id;
+      const id = "f" + (this.fontes.size + 1) + "-" + Date.now().toString(36);
+      this.fontes.set(id, img);
+      return id;
+    }
+
+    // volta a uma versão: troca a imagem de fundo e aplica o estado salvo (textos, logo, ajustes…)
+    async restaurar(src, estadoJson) {
+      const img = await window.CriaDigi.carregarImagem(src);
+      this.src = img;
+      this.srcId = this._guardarFonte(img);
+      this.rot = 0; this.flipH = false; this.flipV = false;
+      this._refazerFonte();
+      if (estadoJson) {
+        const e = JSON.parse(estadoJson);
+        delete e.srcId;
+        Object.assign(this, e);
+        if (e.rot || e.flipH || e.flipV) this._refazerFonte();
+        if (!e.crop) this.crop = this._cobrir(this.out.w / this.out.h);
+      } else this.crop = this._cobrir(this.out.w / this.out.h);
+      this.sel = null; this.sels = [];
+      this._baseSuja = true;
+      this.marcar();
+      this.desenhar();
+      this.aoSelecionar(null);
+    }
+
+    // retrato do estado atual (para guardar como versão)
+    estadoAtual() { return this._estado(); }
 
     // ------------------------------------------------------------ geometria
     _refazerFonte() {
@@ -152,14 +189,17 @@
     // ------------------------------------------------------------ estado / desfazer
     _estado() {
       return JSON.stringify({
-        rot: this.rot, flipH: this.flipH, flipV: this.flipV, crop: this.crop, out: this.out,
+        srcId: this.srcId, rot: this.rot, flipH: this.flipH, flipV: this.flipV, crop: this.crop, out: this.out,
         adj: this.adj, filtro: this.filtro, degrade: this.degrade, logo: this.logo, textos: this.textos,
       });
     }
 
     _aplicarEstado(json) {
       const s = JSON.parse(json);
-      const giroMudou = s.rot !== this.rot || s.flipH !== this.flipH || s.flipV !== this.flipV;
+      const fonteMudou = s.srcId && s.srcId !== this.srcId && this.fontes.has(s.srcId);
+      const giroMudou = fonteMudou || s.rot !== this.rot || s.flipH !== this.flipH || s.flipV !== this.flipV;
+      if (fonteMudou) this.src = this.fontes.get(s.srcId);
+      if (s.srcId && !this.fontes.has(s.srcId)) delete s.srcId;
       Object.assign(this, s);
       if (giroMudou && this.src) this._refazerFonte();
       this.sels = this.sels.filter((id) => id === "logo" ? !!this.logo.id : this.textos.some((t) => t.id === id));

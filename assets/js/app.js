@@ -29,6 +29,7 @@
     exp: { tipo: "image/png", qualidade: 0.9 },
     trava: true,
     templates: null, categoria: "Todas", tpl: null,
+    versoes: [], versaoAtual: null,   // versões da peça aberta no editor
     msgs: [],                // conversa atual, no formato salvo em "Minhas conversas"
     conversaId: null,        // id da conversa salva (só com conta)
     conversas: null,         // lista carregada na aba
@@ -375,12 +376,13 @@
         sem_textos: !!focoTpl,
         layout: layoutAtual,
         tipografia,
+        origem_id: refinar ? foco.id : null,
       });
       if (prompt) S.historico.push(prompt);
 
       // ajuste só de texto: mesma imagem, textos novos (não gasta crédito)
       if (r.gerou_imagem === false) {
-        const novo = { ...foco, id: "txt-" + Date.now(), prompt, copy: r.textos || [], posicao: r.posicao || foco.posicao, preview: null };
+        const novo = { ...foco, id: "txt-" + Date.now(), prompt, copy: r.textos || [], posicao: r.posicao || foco.posicao, preview: null, camadas: null, versoes: null, pai: foco.id, tipoVersao: "texto" };
         S.resultados.unshift(novo);
         $(".lote-topo .tag-ajuste", lote).textContent = "Texto";
         $(".lote-grade", lote).innerHTML = cartaoResultado(novo, formato);
@@ -395,6 +397,7 @@
       const ehLayout = !!r.layout;
       const itens = r.imagens.map((im) => ({
         ...im, formato, prompt, tplCampo: focoTpl ? focoTpl.campo : undefined, layout: ehLayout || undefined,
+        pai: refinar ? foco.id : undefined,
         copy: ehLayout ? null : r.textos || (refinar && foco.copy ? foco.copy : null),
         posicao: ehLayout ? null : r.posicao || (refinar ? foco.posicao : null),
       }));
@@ -551,7 +554,7 @@
       id: String(it.id), url: guardavel(it.url) ? it.url : null, prompt: it.prompt || "",
       formato: resumoFormato(it.formato), copy: it.copy || null, posicao: it.posicao || null,
       tplCampo: it.tplCampo || undefined, layout: it.layout || undefined,
-      blocos: it.blocos || undefined,
+      blocos: it.blocos || undefined, pai: it.pai ? String(it.pai) : undefined, tipoVersao: it.tipoVersao || undefined,
     };
   }
 
@@ -725,6 +728,7 @@
       ed.historico = [ed.historico[ed.historico.length - 1]];
       $("#exp-nome").value = nomeBase(it);
       $(".refinar").hidden = !!it.semIA;
+      montarVersoes(it);
       atualizarBotaoSalvar();
       sincronizarFerramentas();
       aoSelecionar(null);
@@ -815,6 +819,96 @@
       toast(e.message, "erro", 7000);
     }
   }
+
+  // ================================================================ versões da peça
+  // Junta a linhagem da peça (ajustes pelo chat e refinos) e deixa voltar a qualquer versão.
+  function itemDeGaleria(g) {
+    return {
+      ...g, formato: formatoDe(g.formato), copy: g.textos && g.textos.textos ? g.textos.textos : null, posicao: g.textos ? g.textos.posicao : null,
+      layout: !!(g.textos && g.textos.layout), blocos: g.textos && g.textos.blocos ? g.textos.blocos : null,
+    };
+  }
+  function cadeiaDe(it) {
+    const todos = [...S.resultados, ...(S.galeria || []).map(itemDeGaleria)];
+    const cadeia = [it];
+    const vistos = new Set([String(it.id)]);
+    let atual = it;
+    while (atual) {
+      const pid = atual.pai || atual.origem;
+      if (!pid) break;
+      const p = todos.find((x) => String(x.id) === String(pid));
+      if (!p || vistos.has(String(p.id))) break;
+      vistos.add(String(p.id));
+      cadeia.unshift(p);
+      atual = p;
+    }
+    return cadeia;
+  }
+  function montarVersoes(it) {
+    if (it.versoes && it.versoes.length) {
+      S.versoes = it.versoes;
+    } else {
+      const cadeia = cadeiaDe(it);
+      S.versoes = cadeia.map((x, i) => ({
+        id: "v" + x.id, itemId: x.id, url: x.url, item: x, quando: x.criado_em || null,
+        rotulo: i === 0 ? "Original" : (x.tipoVersao === "texto" ? "Texto: " : "Ajuste: ") + (x.prompt || ""),
+      }));
+    }
+    it.versoes = S.versoes;
+    S.versaoAtual = S.versoes.length ? S.versoes[S.versoes.length - 1].id : null;
+    const atualV = S.versoes.find((v) => String(v.itemId) === String(it.id));
+    if (atualV) S.versaoAtual = atualV.id;
+    desenharVersoes();
+  }
+  // miniatura da arte como está no editor (com textos e logo)
+  async function miniaturaDoEditor() {
+    try { return URL.createObjectURL(await ed.exportar("image/jpeg", 0.6)); } catch (_) { return null; }
+  }
+  function desenharVersoes() {
+    const n = S.versoes.length;
+    $("#versoes-cont").textContent = n > 1 ? String(n) : "";
+    $("#versoes-lista").innerHTML = n ? S.versoes.map((v, i) => `
+      <button type="button" class="versao ${v.id === S.versaoAtual ? "atual" : ""}" data-versao="${esc(v.id)}" title="${esc(v.rotulo)}">
+        <img src="${esc(v.miniatura || (v.item && v.item.preview) || v.url)}" alt="" crossorigin="anonymous">
+        <span class="versao-rotulo">${i + 1}. ${esc(v.rotulo)}</span>
+        <span class="versao-quando">${v.id === S.versaoAtual ? "Atual" : v.quando ? new Date(v.quando).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : ""}</span>
+      </button>`).join("") : `<p class="ajuda">Esta peça ainda não tem outras versões.</p>`;
+  }
+  async function restaurarVersao(id) {
+    const v = S.versoes.find((x) => x.id === id);
+    if (!v || v.id === S.versaoAtual) return;
+    // antes de sair, guarda como a versão atual está (com as edições feitas nela)
+    const atual = S.versoes.find((x) => x.id === S.versaoAtual);
+    if (atual) { atual.estado = ed.estadoAtual(); atual.miniatura = await miniaturaDoEditor(); }
+    try {
+      if (v.estado) {
+        await ed.restaurar(v.url, v.estado);
+      } else {
+        const x = v.item || {};
+        if (!x.camadas && ((x.copy && x.copy.length) || x.layout)) await comporArte(x);
+        const e = JSON.parse(ed.estadoAtual());
+        delete e.crop; delete e.srcId;
+        if (x.camadas) { e.textos = JSON.parse(JSON.stringify(x.camadas.textos)); e.degrade = { ...x.camadas.degrade }; if (x.camadas.logo) e.logo = { ...x.camadas.logo }; }
+        await ed.restaurar(v.url, JSON.stringify(e));
+      }
+      S.versaoAtual = v.id;
+      S.aberto = { ...S.aberto, id: v.itemId || S.aberto.id, url: v.url, versoes: S.versoes, blocos: v.item ? v.item.blocos : S.aberto.blocos };
+      desenharVersoes();
+      sincronizarFerramentas();
+      toast(`Voltou para a versão ${S.versoes.indexOf(v) + 1}. Dá para desfazer (Ctrl+Z).`, "ok");
+    } catch (e) {
+      toast("Não consegui abrir essa versão: " + e.message, "erro");
+    }
+  }
+  $("#botao-versoes").addEventListener("click", () => {
+    const bar = $("#barra-versoes");
+    bar.hidden = !bar.hidden;
+    $("#botao-versoes").setAttribute("aria-pressed", String(!bar.hidden));
+  });
+  $("#versoes-lista").addEventListener("click", (ev) => {
+    const b = ev.target.closest("[data-versao]");
+    if (b) restaurarVersao(b.dataset.versao);
+  });
 
   function formatoDe(v) {
     if (!v) return null;
@@ -1556,13 +1650,26 @@
       const r = await API.gerar({
         prompt: pedido, estilo_id: S.estilo?.id || null, estilo_nome: S.estilo?.nome || "",
         proporcao: formato.prop, formato: formato.id, quantidade: 1, base, base_tipo: "refinar",
+        sem_textos: true,   // os textos já são camadas no editor
+        origem_id: S.aberto.id,
       });
-      const nova = r.imagens[0];
-      S.aberto = { ...S.aberto, id: nova.id, url: nova.url };
-      S.resultados.unshift({ ...nova, formato, prompt: pedido });
+      const nova = r.imagens && r.imagens[0];
+      if (!nova) throw new Error("A IA não devolveu uma imagem nova. Tente descrever a mudança de outro jeito.");
+      // guarda como a versão anterior estava (com os textos de agora) antes de trocar
+      const anterior = S.versoes.find((v) => v.id === S.versaoAtual);
+      if (anterior) { anterior.estado = ed.estadoAtual(); anterior.miniatura = await miniaturaDoEditor(); }
+      const vNova = { id: "v" + nova.id, url: nova.url, rotulo: "Refino: " + pedido, quando: new Date().toISOString() };
+      S.aberto = { ...S.aberto, id: nova.id, url: nova.url, versoes: S.versoes };
+      S.resultados.unshift({ ...nova, formato, prompt: pedido, pai: anterior && anterior.itemId, layout: S.aberto.layout });
       await ed.trocarBase(nova.url);
+      vNova.estado = ed.estadoAtual();
+      vNova.itemId = nova.id;
+      vNova.miniatura = await miniaturaDoEditor();
+      S.versoes.push(vNova);
+      S.versaoAtual = vNova.id;
+      desenharVersoes();
       $("#refinar-texto").value = "";
-      toast("Imagem refinada. Seus textos e a logo foram mantidos.", "ok");
+      toast("Imagem refinada. Seus textos e a logo foram mantidos. Para voltar, use Versões ou desfazer.", "ok", 6000);
     } catch (e) {
       toast(e.message, "erro", 8000);
     } finally {

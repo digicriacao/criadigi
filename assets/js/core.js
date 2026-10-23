@@ -630,7 +630,7 @@
           else if (params.base && params.base_tipo === "refinar") url = await demoRefinar(params.base, d.cores, i);
           else url = demoImagem(params.proporcao, params.estilo_nome, hash(params.prompt + Date.now() + i), d.cores);
           const id = uid();
-          if (conta && params.modo !== "foto") d.geracoes.unshift({ id, user_id: conta.id, email: conta.email, url, prompt: params.prompt, formato: params.formato, estilo: params.estilo_nome, textos: plano && plano.layout ? { layout: true } : plano ? { textos: plano.textos, posicao: plano.posicao } : null, criado_em: new Date().toISOString() });
+          if (conta && params.modo !== "foto") d.geracoes.unshift({ id, user_id: conta.id, email: conta.email, url, origem: params.origem_id || null, prompt: params.prompt, formato: params.formato, estilo: params.estilo_nome, textos: plano && plano.layout ? { layout: true } : plano ? { textos: plano.textos, posicao: plano.posicao } : null, criado_em: new Date().toISOString() });
           imagens.push({ id, url });
         }
         d.geracoes = d.geracoes.slice(0, 16);

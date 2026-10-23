@@ -775,3 +775,27 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--r
 }
 @keyframes pulso-sep { 50% { opacity: .55; } }
 .msg-extras .ponto-carregando { margin-right: 6px; }
+
+/* versões da peça */
+.botao-versoes { display: inline-flex; align-items: center; gap: 6px; }
+.botao-versoes[aria-pressed="true"] { color: var(--rosa); border-color: var(--rosa); background: var(--rosa-fundo); }
+.botao-versoes .cont:empty { display: none; }
+.barra-versoes { background: var(--surface); border: 1px solid var(--line-soft); border-radius: var(--raio-sm); padding: 10px 12px; margin-bottom: 12px; }
+.barra-versoes-topo { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-size: 13px; margin-bottom: 8px; }
+.barra-versoes-topo .ajuda { font-size: 12px; }
+.versoes-lista { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
+.versao { flex: none; width: 96px; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.versao img { width: 96px; height: 96px; object-fit: cover; border-radius: 8px; border: 2px solid var(--line-soft); display: block; background: var(--line-soft); }
+.versao:hover img { border-color: var(--ink-faint); }
+.versao.atual img { border-color: var(--rosa); }
+.versao-rotulo { display: block; font-size: 11.5px; font-weight: 600; margin-top: 4px; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.versao-quando { display: block; font-size: 11px; color: var(--ink-soft); }
+.versao.atual .versao-quando { color: var(--rosa); font-weight: 600; }
+.botao-versoes .cont { font-size: 11px; background: var(--line-soft); border-radius: 99px; padding: 0 6px; color: var(--ink-soft); font-weight: 700; }
+.editor-barra { flex-wrap: wrap; row-gap: 8px; }
+.editor-acoes { flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 600px) {
+  .editor-info { display: none; }
+  .editor-acoes { margin-left: auto; }
+  .botao-versoes { padding-left: 10px; padding-right: 10px; }
+}
