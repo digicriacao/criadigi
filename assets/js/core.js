@@ -160,7 +160,7 @@
         nunca: "Clichê corporativo de banco de imagens. Excesso de efeito neon ou luz pink artificial que tire o realismo. Tom amarelado na luz. Imagem inteira tingida de pink: preservar o equilíbrio entre áreas densas e respiros. Imagens escuras demais que atrapalhem a leitura do título. Muitos elementos competindo por atenção. Logotipos de outras marcas. Texto escrito na imagem.",
         logo_padrao: null, logo_posicao: "inf-dir", logo_tamanho: 16,
         modelo: "gemini-nano-banana-2.1", resolucao: "2K", max_referencias: 4,
-        permitir_texto_ia: false, textos_ia: true, modelo_texto: "gemini-2.5-flash", modelo_layout: "gemini-3-pro-image",
+        permitir_texto_ia: false, textos_ia: true, modelo_texto: "gemini-2.5-flash", modelo_layout: "gemini-3-pro-image", estilo_icones: "Ícones de linha simples e geométricos, traço uniforme com pontas arredondadas, em pink #EA0356 com detalhes em preto #2D2D2D. Nada de emoji, clipart, 3D ou gradiente.",
         tom_de_voz: "Claro, próximo e confiante, como um consultor especialista sem arrogância.",
         anon_hora: 10, anon_dia: 20, anon_ip_dia: 100, conta_hora: 30, conta_dia: 100, limite_dia: 1000, dominios_conta: "",
       },
@@ -599,6 +599,19 @@
     // resposta: { imagens: [{id, url}], erros, salvo, restante_hora }
     async gerar(params) {
       if (DEMO) {
+        if (params.modo === "separar") {
+          await espera(1200);
+          return {
+            imagem: { id: uid(), url: "data:" + (params.imagem.mime || "image/jpeg") + ";base64," + params.imagem.data }, salvo: false,
+            blocos: [
+              { texto: "FIM DE ANO\nNA DIGI", caixa: [90, 520, 300, 940], papel: "titulo", cor: "#EA0356", negrito: true, alinhar: "left", linhas: 2, maiusculas: true },
+              { texto: "Confira como será nosso funcionamento\nno Natal e no Ano Novo:", caixa: [320, 520, 380, 940], papel: "texto", cor: "#232323", negrito: false, alinhar: "left", linhas: 2, maiusculas: false },
+              { texto: "24/12", caixa: [440, 540, 500, 700], papel: "destaque", cor: "#EA0356", negrito: true, alinhar: "center", linhas: 1, maiusculas: true },
+              { texto: "25/12", caixa: [440, 760, 500, 920], papel: "destaque", cor: "#EA0356", negrito: true, alinhar: "center", linhas: 1, maiusculas: true },
+              { texto: "Boas festas!", caixa: [820, 560, 880, 880], papel: "titulo", cor: "#EA0356", negrito: true, alinhar: "center", linhas: 1, maiusculas: false },
+            ],
+          };
+        }
         const d = demo();
         const s = demoSessao();
         const conta = s && emailPermitido(s.email, d.marca) ? s : null;

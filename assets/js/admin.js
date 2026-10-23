@@ -48,6 +48,7 @@
       fontes: S.arquivos.filter((a) => a.tipo === "fonte").length,
       logos: S.arquivos.filter((a) => a.tipo === "logo").length,
       referencias: S.arquivos.filter((a) => a.tipo === "referencia").length,
+      icones: S.arquivos.filter((a) => a.tipo === "icone").length,
       estilos: S.estilos.length,
       formatos: (S.formatos || []).filter((f) => f.ativo !== false).length,
       templates: S.templatesAdmin ? S.templatesAdmin.length : "",
@@ -259,6 +260,35 @@
     },
 
     // ---------------------------------------------------------------- referências
+    icones(el) {
+      secaoArquivos(el, {
+        tipo: "icone",
+        titulo: "Ícones",
+        texto: "Como a IA desenha ícones quando recria uma arte (comunicados, cartazes, infográficos). O estilo escrito abaixo vale sempre; os ícones de exemplo enviados aqui são copiados no traço, nas cores e no acabamento.",
+        aceita: "image/png,image/jpeg,image/webp",
+        dica: "Envie de 3 a 8 ícones do mesmo conjunto (PNG com fundo transparente ou fundo branco). Uma imagem com vários ícones juntos também funciona.",
+        visual: (a) => `<div class="arq-visual foto" style="background:#fff"><img src="${esc(a.url)}" alt="${esc(a.descricao || a.nome)}" style="object-fit:contain;padding:10px"></div>`,
+        campos: (a) => `
+          <input type="text" data-campo="descricao" value="${esc(a.descricao || "")}" placeholder="O que é (ex.: calendário)" aria-label="Descrição">
+          <label class="interruptor"><input type="checkbox" data-campo="ativo" ${a.ativo !== false ? "checked" : ""}> Usar nas gerações</label>`,
+        metaInicial: (file) => ({ nome: file.name, descricao: file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ") }),
+        multiplos: true,
+        redimensionar: 800,
+        rodape: `<section class="cartao-admin">
+            <h2>Estilo dos ícones</h2>
+            <p class="ajuda">Descreva o traço, as cores e o acabamento. A IA troca emojis, cliparts e ícones da referência por ícones neste estilo.</p>
+            <label class="campo" style="margin-top:10px"><textarea id="estilo-icones" rows="5">${esc(S.marca.estilo_icones || "")}</textarea></label>
+            <div class="acoes-form"><button type="button" class="btn btn-primario" id="salvar-icones">Salvar estilo</button></div>
+          </section>`,
+        aoMontar: () => {
+          $("#salvar-icones").addEventListener("click", async () => {
+            const v = $("#estilo-icones").value.trim();
+            if (await salvarComAviso(() => API.salvarMarca({ estilo_icones: v }), "Estilo dos ícones salvo.")) S.marca.estilo_icones = v;
+          });
+        },
+      });
+    },
+
     referencias(el) {
       secaoArquivos(el, {
         tipo: "referencia",

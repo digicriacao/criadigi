@@ -765,3 +765,13 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--r
 .opcao-ia b { color: var(--ink); font-size: 14px; }
 .opcao-ia:hover { border-color: var(--rosa); background: var(--rosa-fundo); }
 .opcao-ia:hover b { color: var(--rosa); }
+
+/* arte completa: separando os textos em camadas */
+.cartao.separando { position: relative; }
+.cartao.separando::after {
+  content: "Separando os textos…"; position: absolute; left: 10px; bottom: 10px; padding: 6px 10px; border-radius: 999px;
+  background: rgba(34, 35, 35, .82); color: #fff; font-size: 12px; font-weight: 600; pointer-events: none;
+  animation: pulso-sep 1.4s ease-in-out infinite;
+}
+@keyframes pulso-sep { 50% { opacity: .55; } }
+.msg-extras .ponto-carregando { margin-right: 6px; }

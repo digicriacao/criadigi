@@ -352,7 +352,9 @@
     $("#resultados").prepend(lote);
 
     try {
-      const base = refinar ? await reduzirParaBase64(foco.url) : usaBase ? await reduzirParaBase64(S.base) : null;
+      const base = refinar
+        ? await reduzirParaBase64(foco.layout && foco.blocos ? await arteComTextos(foco) : foco.url)
+        : usaBase ? await reduzirParaBase64(S.base) : null;
       const fotos = await Promise.all(fotosPessoas.map((f) => reduzirParaBase64(f.url, 1024)));
       const layoutAtual = refinar && !!foco.layout;
       // amostra das fontes da marca: usada quando a IA recria uma arte completa
@@ -415,6 +417,19 @@
         definirFoco(itens[0]);
         await Promise.all(itens.map(comporArte));
         definirFoco(S.foco);
+        // arte completa: separa os textos em camadas editáveis (em segundo plano)
+        if (ehLayout) {
+          resposta.insertAdjacentHTML("beforeend", `<p class="msg-extras msg-separando"><span class="ponto-carregando"></span>Separando os textos para você editar no editor…</p>`);
+          const linha = $(".msg-separando", resposta);
+          Promise.allSettled(itens.map((it) => separarTextos(it, !!r.salvo))).then((rs) => {
+            const ok = rs.filter((x) => x.status === "fulfilled" && x.value).length;
+            linha.innerHTML = ok
+              ? `Textos editáveis prontos: abra no editor (lápis) para mudar texto, fonte, cor e posição.`
+              : `Não consegui separar os textos desta vez. A arte segue com o texto fixo; para corrigir, peça no chat.`;
+            linha.classList.remove("msg-separando");
+            salvarConversaAtual();
+          });
+        }
       }
       if (typeof r.restante_hora === "number" && !r.salvo && r.restante_hora <= 3) {
         toast(r.restante_hora > 0 ? `Sem login, você ainda pode gerar ${r.restante_hora} imagem(ns) nesta hora.` : "Você usou o limite desta hora sem login. Entre na sua conta para gerar mais.", "aviso", 6000);
@@ -514,7 +529,7 @@
       return;
     }
     const formato = formatoDe(it.formato);
-    const item = { ...it, formato, copy: it.textos && it.textos.textos ? it.textos.textos : null, posicao: it.textos ? it.textos.posicao : null, layout: !!(it.textos && it.textos.layout) };
+    const item = { ...it, formato, copy: it.textos && it.textos.textos ? it.textos.textos : null, posicao: it.textos ? it.textos.posicao : null, layout: !!(it.textos && it.textos.layout), blocos: it.textos && it.textos.blocos ? it.textos.blocos : null };
     if (b && b.dataset.acao === "ajustar") {
       if (!S.resultados.some((r) => r.id === item.id)) S.resultados.push(item);
       definirFoco(item); $("#prompt").focus(); return;
@@ -536,6 +551,7 @@
       id: String(it.id), url: guardavel(it.url) ? it.url : null, prompt: it.prompt || "",
       formato: resumoFormato(it.formato), copy: it.copy || null, posicao: it.posicao || null,
       tplCampo: it.tplCampo || undefined, layout: it.layout || undefined,
+      blocos: it.blocos || undefined,
     };
   }
 
@@ -791,7 +807,7 @@
       const item = {
         ...g, formato: formatoDe(g.formato), dono: { id: g.user_id, email: g.email || "" },
         copy: g.textos && g.textos.textos ? g.textos.textos : null, posicao: g.textos ? g.textos.posicao : null,
-        layout: !!(g.textos && g.textos.layout),
+        layout: !!(g.textos && g.textos.layout), blocos: g.textos && g.textos.blocos ? g.textos.blocos : null,
       };
       await abrirNoEditor(item);
       if (item.dono.id !== S.sessao.id) toast(`Você está editando a arte de ${item.dono.email}. Ao salvar, a versão editada vai para as criações dessa pessoa.`, "info", 8000);
@@ -947,6 +963,106 @@
     return { textos, degrade };
   }
 
+  // ---- arte completa: textos localizados pela IA viram camadas no mesmo lugar
+  function camadasDeBlocos(blocos, img, W, H) {
+    const ctx = document.createElement("canvas").getContext("2d");
+    const fT = fontePara("titulo"), fX = fontePara("texto");
+    return blocos.map((b) => {
+      const [y0, x0, y1, x1] = b.caixa.map((v) => v / 1000);
+      const linhas = b.texto.split("\n");
+      const n = Math.max(1, linhas.length);
+      const grande = ["titulo", "destaque", "chamada"].includes(b.papel);
+      const fonte = grande || b.negrito ? fT : fX;
+      const peso = pesoDaFonte(fonte, b.negrito ? 700 : grande ? 700 : 400);
+      const hPx = (y1 - y0) * H, wPx = (x1 - x0) * W;
+      // altura das letras de uma linha ≈ 0,74 do corpo (só maiúsculas) ou 0,92 (com minúsculas)
+      const glifo = b.maiusculas ? 0.74 : 0.92;
+      const entre = n > 1 ? 1.18 : 1.12;
+      let px = hPx / ((n - 1) * entre + glifo);
+      ctx.font = `${peso} ${px}px "${fonte}", "Hanken Grotesk", sans-serif`;
+      const maior = Math.max(...linhas.map((l) => ctx.measureText(l).width), 1);
+      if (maior > wPx * 1.04) px *= (wPx * 1.02) / maior;          // cabe na largura que tinha na arte
+      ctx.font = `${peso} ${px}px "${fonte}", "Hanken Grotesk", sans-serif`;
+      const larg = Math.max(...linhas.map((l) => ctx.measureText(l).width), 1);
+      const entrelinha = n > 1 ? Math.max(0.9, Math.min(1.7, (hPx - px * glifo) / (n - 1) / px)) : 1.12;
+      // posição: o editor desenha a partir do topo da linha; as letras começam um pouco abaixo
+      const topo = y0 * H - px * (b.maiusculas ? 0.2 : 0.12);
+      const xBloco = b.alinhar === "center" ? (x0 + x1) / 2 * W - larg / 2 : b.alinhar === "right" ? x1 * W - larg : x0 * W;
+      return {
+        id: uid(), texto: b.texto, papel: b.papel,
+        fonte, peso, tamanho: Math.round(px / W * 10000) / 100, caixaAlta: false,
+        cor: b.cor || "#232323", fundo: null, alinhar: b.alinhar || "left",
+        largura: Math.min(1, larg / W + 0.02), entrelinha: Math.round(entrelinha * 100) / 100,
+        x: xBloco / W, y: topo / H,
+      };
+    });
+  }
+
+  // logo da arte completa: o canto com menos texto (e a versão que aparece melhor no fundo)
+  function logoLivre(img, W, H, blocos) {
+    const base = logoParaFundo(img, W, H);
+    if (!base.id || !blocos || !blocos.length) return base;
+    const caixas = blocos.map((b) => ({ y0: b.caixa[0] / 1000, x0: b.caixa[1] / 1000, y1: b.caixa[2] / 1000, x1: b.caixa[3] / 1000 }));
+    const sobra = (a) => caixas.reduce((s, c) => s + Math.max(0, Math.min(a.x1, c.x1) - Math.max(a.x0, c.x0)) * Math.max(0, Math.min(a.y1, c.y1) - Math.max(a.y0, c.y0)), 0);
+    const preferido = base.pos;
+    const opcoes = [preferido, "inf-dir", "inf-esq", "sup-dir", "sup-esq", "inf-centro"].filter((v, i, l) => l.indexOf(v) === i);
+    let melhor = null;
+    for (const pos of opcoes) {
+      for (const tamanho of [base.tamanho, Math.round(base.tamanho * 0.8)]) {
+        const a = areaDoLogo({ ...base, pos, tamanho }, W, H);
+        if (!a) continue;
+        const v = sobra(a);
+        if (!melhor || v < melhor.v - 1e-6) melhor = { v, pos, tamanho };
+        if (v === 0) break;
+      }
+      if (melhor && melhor.v === 0) break;
+    }
+    const escolhido = { ...base, pos: melhor.pos, tamanho: melhor.tamanho };
+    const negativa = logosAtivos().find((l) => l.variante === "negativa");
+    const principal = logoPadrao();
+    const area = areaDoLogo(escolhido, W, H);
+    if (negativa && area) escolhido.id = luminosidade(img, W, H, area) < 0.45 ? negativa.id : principal.id;
+    return escolhido;
+  }
+
+  // a arte com os textos atuais (sem o logo), para a IA ajustar
+  async function arteComTextos(it) {
+    if (!it.camadas) await comporArte(it);
+    const e = new Editor(document.createElement("canvas"));
+    await e.carregar(it.url, it.formato || null);
+    e.logo = { ...e.logo, id: null };
+    e.textos = JSON.parse(JSON.stringify(it.camadas ? it.camadas.textos : []));
+    const blob = await e.exportar("image/jpeg", 0.92);
+    return URL.createObjectURL(blob);
+  }
+
+  // pede ao servidor para apagar as letras da arte e devolver onde estava cada texto
+  async function separarTextos(it, salvo) {
+    const cards = () => $$(`.cartao[data-id="${CSS.escape(String(it.id))}"]`);
+    cards().forEach((c) => c.classList.add("separando"));
+    try {
+      const imagem = await reduzirParaBase64(it.url, 2048);
+      const r = await API.gerar({ modo: "separar", imagem, proporcao: it.formato ? it.formato.prop : "1:1", salvar_id: salvo ? it.id : null });
+      if (!r || !r.imagem || !Array.isArray(r.blocos) || !r.blocos.length) return false;
+      const idAntigo = String(it.id);
+      it.original = it.url;
+      it.url = r.imagem.url;
+      it.blocos = r.blocos;
+      it.camadas = null;
+      // a conversa guardada passa a apontar para a versão com textos editáveis
+      for (const m of S.msgs) for (const x of m.itens || []) if (String(x.id) === idAntigo) Object.assign(x, paraGuardar(it));
+      await comporArte(it);
+      $$(`img[data-src-id="${CSS.escape(idAntigo)}"]`).forEach((im) => { im.src = it.preview || it.url; });
+      if (S.aberto === it) abrirNoEditor(it);
+      return true;
+    } catch (e) {
+      console.warn("Separar textos falhou:", e);
+      return false;
+    } finally {
+      cards().forEach((c) => c.classList.remove("separando"));
+    }
+  }
+
   // amostra das fontes da marca, enviada à IA para ela copiar o desenho das letras
   let amostraCache = null;
   async function amostraTipografica() {
@@ -991,9 +1107,9 @@
       const W = it.formato ? it.formato.w : img.naturalWidth;
       const H = it.formato ? it.formato.h : img.naturalHeight;
       it.camadas = soLogo
-        ? { textos: [], degrade: { cor: "#232323", forca: 0, lado: "baixo" } }
+        ? { textos: it.blocos ? camadasDeBlocos(it.blocos, img, W, H) : [], degrade: { cor: "#232323", forca: 0, lado: "baixo" } }
         : calcularCamadas(it.copy, it.posicao, img, W, H);
-      it.camadas.logo = logoParaFundo(img, W, H);
+      it.camadas.logo = soLogo ? logoLivre(img, W, H, it.blocos) : logoParaFundo(img, W, H);
       const e = new Editor(document.createElement("canvas"));
       LOGOS.forEach((im, id) => e.registrarLogo(id, im));
       await e.carregar(it.url, it.formato || null);

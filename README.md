@@ -131,7 +131,8 @@ O GitHub desliga tarefas agendadas de repositórios sem commits há 60 dias. O k
    - **Referências:** de 4 a 10 peças aprovadas, sem texto, que representem o estilo.
    - **Identidade:** revise a descrição e as regras. A prévia mostra o que a IA recebe.
    - **Templates:** cadastre as artes prontas (aniversários, comunicados).
-   - **Formatos:** ajuste os tamanhos da lateral. O primeiro da lista já vem marcado para o usuário.
+   - **Ícones:** estilo dos ícones (texto que vale sempre) e ícones de exemplo que a IA copia no traço e nas cores quando recria artes.
+- **Formatos:** ajuste os tamanhos da lateral. O primeiro da lista já vem marcado para o usuário.
    - **IA e limites:** confira os limites e o domínio `digi.ag`.
 
 ---
@@ -152,7 +153,7 @@ python3 -m http.server 8000
 
 **Criar (index.html)**
 - **Textos editáveis feitos pela IA:** peça a arte com texto (ex.: *imagem de Natal com a mensagem "Feliz Natal, Diginerd!" e um subtítulo*). A IA gera a imagem **sem letras**, com espaço livre, e a plataforma aplica título, subtítulo e chamada como camadas editáveis, com as fontes e cores da marca. Texto entre aspas é usado exatamente; quando você pede "adicione um subtítulo", a IA escreve no tom de voz da marca. Pedidos que mudam só o texto ("mude o título para…") não geram imagem nova. A cor do título e a versão do logo se ajustam ao fundo.
-- **Recriar uma arte pronta:** anexe em "Partir de uma imagem" um comunicado, cartaz, convite ou infográfico e peça "refaça", "gere uma versão" ou "mantenha os textos". A IA lê a arte e recria a peça inteira (layout, cards, ícones, ilustrações e todos os textos) com a paleta, a tipografia e o acabamento da marca. O logo oficial entra por cima, como camada. Nessas artes o texto faz parte da imagem: para corrigir uma palavra, peça no chat. Usa o "Modelo para recriar artes completas" (IA e limites), por padrão o Nano Banana Pro, que escreve textos com mais precisão.
+- **Recriar uma arte pronta:** anexe em "Partir de uma imagem" um comunicado, cartaz, convite ou infográfico e peça "refaça", "gere uma versão" ou "mantenha os textos". A IA lê a arte e recria a peça inteira (layout, cards, ícones, ilustrações e todos os textos) com a paleta, a tipografia e o acabamento da marca. Ícones, emojis e cliparts são redesenhados no estilo de ícones da marca (Admin > Ícones). Depois a plataforma localiza cada texto, apaga as letras da imagem (cards e botões continuam) e recria os textos como camadas editáveis no mesmo lugar, com as fontes da marca. O logo oficial entra no canto com menos texto. Se a separação falhar, a arte fica com o texto fixo e dá para corrigir pelo chat. Usa o "Modelo para recriar artes completas" (IA e limites), por padrão o Nano Banana Pro, que escreve textos com mais precisão.
 - **Esquerda, chat com a IA:** descreva a imagem e continue a conversa pedindo ajustes ("fundo mais claro", "coloque confetes"). Cada pedido ajusta a imagem selecionada; clique em outra miniatura para ajustar outra, ou no × para criar uma nova. "Nova conversa" recomeça.
 - **Direita, opções:** estilo, formato, variações (1, 2 ou 4), partir de uma imagem e **fotos de pessoas** (até 4): a IA coloca a pessoa na arte mantendo o rosto.
 - **Centro:** resultados, **Templates**, Minhas criações e **Minhas conversas**.
