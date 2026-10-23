@@ -269,8 +269,14 @@
     if (aspas[0] && (falaTitulo || !textos.length)) definir("titulo", aspas[0]);
     if (/subt[ií]tulo/.test(baixo)) definir("subtitulo", aspas[1] || "Que o próximo ano seja ainda mais extraordinário.");
     if (/chamada|bot[aã]o|cta/.test(baixo)) definir("chamada", aspas[2] || "Saiba mais");
+    // demonstração: não dá para ler a imagem de verdade, então simula textos transcritos
+    if (p.base && p.base_tipo !== "refinar" && !textos.length && /(mant|mesmos|use os|aproveit|fonte).{0,25}texto|texto.{0,20}(imagem|anex)/.test(baixo)) {
+      definir("titulo", "Fim de ano Digi");
+      definir("subtitulo", "Confraternização de 2026\nSexta, 12 de dezembro, às 19h\nEspaço Digi, São Paulo\nTraje: esporte fino com um toque de pink");
+      definir("chamada", "Confirme presença");
+    }
     if (/(tire|remova|sem) (o )?subt[ií]tulo/.test(baixo)) { const i = textos.findIndex((t) => t.tipo === "subtitulo"); if (i >= 0) textos.splice(i, 1); }
-    const soTexto = !!p.base && /t[ií]tulo|subt[ií]tulo|texto|chamada|frase|escrev/.test(baixo) && !/fundo|pessoa|cor |luz|3d|cen[aá]rio|objeto|roupa/.test(baixo);
+    const soTexto = !!p.base && p.base_tipo === "refinar" && /t[ií]tulo|subt[ií]tulo|texto|chamada|frase|escrev/.test(baixo) && !/fundo|pessoa|cor |luz|3d|cen[aá]rio|objeto|roupa/.test(baixo);
     let posicao = p.posicao_atual || "topo";
     if (/embaixo|na base|parte de baixo/.test(baixo)) posicao = "base";
     if (/em cima|no topo/.test(baixo)) posicao = "topo";

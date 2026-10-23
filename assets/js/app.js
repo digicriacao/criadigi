@@ -878,10 +878,16 @@
     const x = centro ? 0.08 : 0.07;
     const alinhar = centro ? "center" : "left";
 
-    // mede cada bloco para empilhar sem sobrepor
+    // mede cada bloco para empilhar sem sobrepor; se não couber (ex.: textos
+    // transcritos de uma imagem, com várias linhas), diminui tudo na mesma proporção
     const ctx = document.createElement("canvas").getContext("2d");
-    const blocos = copy.map((t) => {
-      const e = estilos[t.tipo] || estilos.subtitulo;
+    const my = 0.07 * Math.min(W, H);
+    const logoInf = String(S.marca?.logo_posicao || "inf-dir").startsWith("inf") && logosAtivos().length;
+    const reservaLogo = logoInf ? ((S.marca?.logo_tamanho || 16) / 100) * W * 0.62 + my * 0.4 : 0;
+    const cabe = H - 2 * my - reservaLogo;
+    const medir = (k) => copy.map((t) => {
+      const e0 = estilos[t.tipo] || estilos.subtitulo;
+      const e = { ...e0, tamanho: Math.round(e0.tamanho * k * 100) / 100 };
       const px = W * e.tamanho / 100;
       ctx.font = `${e.peso} ${px}px "${e.fonte}", "Hanken Grotesk", sans-serif`;
       const texto = e.caixaAlta ? t.texto.toLocaleUpperCase("pt-BR") : t.texto;
@@ -889,11 +895,14 @@
       const alt = t.tipo === "chamada" ? px * 1.5 : linhas * px * 1.12;
       return { t, e, px, alt };
     });
+    const somar = (bs) => bs.reduce((s, b, i) => s + b.alt + (i ? bs[i - 1].px * 0.45 : 0), 0);
+    let k = 1, blocos = medir(1);
+    for (let i = 0; i < 6 && somar(blocos) > cabe && k > 0.4; i++) {
+      k = Math.max(0.4, k * Math.sqrt(cabe / somar(blocos)) * 0.98);
+      blocos = medir(k);
+    }
     const gap = (i) => (i ? blocos[i - 1].px * 0.45 : 0);
-    const total = blocos.reduce((s, b, i) => s + b.alt + gap(i), 0);
-    const my = 0.07 * Math.min(W, H);
-    const logoInf = String(S.marca?.logo_posicao || "inf-dir").startsWith("inf") && logosAtivos().length;
-    const reservaLogo = logoInf ? ((S.marca?.logo_tamanho || 16) / 100) * W * 0.62 + my * 0.4 : 0;
+    const total = somar(blocos);
     let y0 = pos === "topo" ? my
       : pos === "base" ? H - my - reservaLogo - total
       : (H - total) / 2;
