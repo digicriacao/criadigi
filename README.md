@@ -222,6 +222,7 @@ criadigi/
 ├── index.html                         criação + editor (login opcional)
 ├── admin.html                         manual de marca (só admins)
 ├── favicon.svg                        bolinha pink (o site anima pelo JavaScript)
+├── og.jpg                             imagem de compartilhamento (WhatsApp, LinkedIn, Slack), 1200×630
 ├── logo-rosa.png                      (copiar do repositório do Pauta)
 ├── assets/
 │   ├── css/styles.css                 identidade Digi, tema claro e escuro
