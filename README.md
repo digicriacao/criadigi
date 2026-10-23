@@ -158,6 +158,7 @@ python3 -m http.server 8000
 - **Direita, opções:** estilo, formato, variações (1, 2 ou 4), partir de uma imagem e **fotos de pessoas** (até 4): a IA coloca a pessoa na arte mantendo o rosto.
 - **Centro:** resultados, **Templates**, Minhas criações e **Minhas conversas**.
 - Botão **Entrar**: entrar, criar conta e "esqueci minha senha". Com login, "Minhas criações" guarda tudo o que a pessoa gera.
+- **Apagar vários de uma vez:** em Minhas criações e Minhas conversas (e nas seções Criações e Conversas do admin), marque as caixas (Shift + clique marca um intervalo) ou use "Selecionar todas" e depois "Apagar selecionadas".
 - **Minhas conversas** (com login): cada conversa com a IA fica guardada, como no ChatGPT. Ao abrir uma, o chat, as imagens e a última imagem selecionada voltam, e dá para continuar pedindo ajustes de onde parou.
 - **Salvar em Minhas criações** (no editor, com login): guarda a versão editada (com textos, logo e recorte) como uma nova criação; a original continua lá.
 - Favicon: bolinha pink pulsando; enquanto a IA gera, ganha um anel girando.
@@ -173,8 +174,10 @@ python3 -m http.server 8000
 
 **Editor**
 - Recortar (proporção livre ou travada), resize em pixels, girar e espelhar.
+- **Cores da marca** (Ajustes): a IA não acerta o hex exato, então as imagens geradas passam por uma correção que puxa os tons de pink para o pink oficial e deixa os cinzas neutros, mantendo luz e sombra. Nas artes completas, roxos claros viram pink e roxos escuros viram grafite. Pele e objetos vermelhos não mudam. A força padrão fica em Admin > IA e limites (80) e cada um ajusta na arte.
 - Brilho, contraste, saturação, temperatura, filtro da marca e degradê para texto.
 - Textos com fontes e cores da marca, arrastáveis; logo padrão aplicada sozinha. Espaçamento entre linhas ajustável.
+- **Copiar e colar:** Ctrl+C, Ctrl+X e Ctrl+V nos textos e na logo, também de uma arte para outra (ou pelos botões Copiar, Colar e Duplicar na aba Texto). Ctrl+D duplica. Texto copiado de fora (e-mail, documento) vira uma camada nova; imagem colada fora do editor ou no chat vira a imagem de partida.
 - **Vários itens de uma vez:** Shift + clique (na arte ou na lista), arrastar numa área vazia ou Ctrl+A. Mover, trocar fonte, peso, cor, fundo, tamanho (proporcional) e alinhamento valem para todos; botões para alinhar os itens entre si (ou na arte, com um só).
 - **Alinhamento automático:** ao arrastar, o item encaixa nas bordas e centros da arte, dos outros itens e das guias, e aparece uma linha pink mostrando o alinhamento (Alt solta livre; Shift trava na horizontal/vertical). Setas movem 1 px, Shift + setas 10 px.
 - **Guias:** botão de guias no topo do editor: guias verticais, horizontais e de margem (5%), arrastáveis; arraste para fora da arte para apagar. Só aparecem para quem edita, nunca na imagem baixada, e ficam salvas no navegador.

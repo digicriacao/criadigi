@@ -781,6 +781,7 @@
               <label class="campo"><span class="rotulo">Resolução</span>
                 <select name="resolucao">${["1K", "2K", "4K"].map((r) => `<option ${m.resolucao === r ? "selected" : ""}>${r}</option>`).join("")}</select></label>
               <label class="campo"><span class="rotulo">Referências enviadas por pedido</span>${num("max_referencias", m.max_referencias ?? 4, 0, 6)}</label>
+              <label class="campo"><span class="rotulo">Correção para as cores da marca (0 a 100)</span>${num("cor_marca_forca", m.cor_marca_forca ?? 80, 0, 100)}</label>
               <label class="campo checar inteiro"><input type="checkbox" name="textos_ia" ${m.textos_ia !== false ? "checked" : ""}> A IA escreve e aplica textos editáveis (título, subtítulo e chamada) quando o usuário pede</label>
               <label class="campo inteiro"><span class="rotulo">Modelo de texto (planeja e escreve os textos)</span>
                 <input type="text" name="modelo_texto" value="${esc(m.modelo_texto || "gemini-2.5-flash")}"></label>
@@ -790,6 +791,7 @@
             </div>
             <p class="ajuda" style="margin-top:12px">Com os textos editáveis ligados, a IA gera a imagem sem letras e a plataforma aplica título, subtítulo e chamada com as fontes oficiais. Pedidos que mexem só no texto não geram imagem nova (não gastam crédito). 2K é o melhor equilíbrio entre qualidade e custo.</p>
             <p class="ajuda" style="margin-top:8px">Quando o usuário anexa uma arte pronta (comunicado, cartaz, infográfico) e pede uma nova versão, a IA recria a arte inteira, com layout, ícones e textos, na identidade da marca. Nesse caso o texto fica dentro da imagem e é corrigido pelo chat. O Nano Banana Pro escreve textos com muito mais precisão.</p>
+            <p class="ajuda" style="margin-top:8px">A IA não acerta o hex exato das cores. A correção puxa os tons de pink para o pink oficial e neutraliza os cinzas nas imagens geradas, mantendo luz e sombra. Ela vale para prévias, editor e downloads, e cada pessoa pode ajustar em Editor > Ajustes > Cores da marca. 80 é um bom equilíbrio; 100 deixa o pink mais exato, mas pode puxar levemente lábios e tecidos rosados.</p>
           </section>
 
           <section class="cartao-admin">
@@ -838,6 +840,7 @@
         const d = {
           modelo: f.modelo.value, resolucao: f.resolucao.value,
           max_referencias: Math.min(6, n("max_referencias", 0, 4)),
+          cor_marca_forca: Math.min(100, n("cor_marca_forca", 0, 80)),
           permitir_texto_ia: f.permitir_texto_ia.checked,
           textos_ia: f.textos_ia.checked,
           modelo_texto: f.modelo_texto.value.trim() || "gemini-2.5-flash",

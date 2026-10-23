@@ -58,6 +58,7 @@
     S.formato = FORMATOS[0];   // o primeiro formato da lista do admin já vem marcado
 
     ed = new Editor($("#tela"), { aoMudar: sincronizarFerramentas, aoSelecionar: aoSelecionar, aoMudarGuias: sincronizarGuias });
+    ed.paleta = S.cores.map((c) => c.hex);
     const fontes = carregarFontes(S.arquivos).then(() => { if (ed) ed.sujarBase(); if (S.tpl) desenharTpl(); });
     prontos = Promise.all([fontes, carregarLogos()]).catch(() => {});
 
@@ -714,7 +715,7 @@
     S.resultados = novos.reverse();
     mostrarAba("resultados");
     if (ultimo) definirFoco(ultimo);
-    Promise.all(novos.filter((it) => (it.copy && it.copy.length) || it.layout).map(comporArte)).then(() => definirFoco(S.foco));
+    Promise.all(novos.filter((it) => (it.copy && it.copy.length) || it.layout || ehDaIA(it)).map(comporArte)).then(() => definirFoco(S.foco));
     if (!S.conversaId) toast("Você está vendo a conversa de outra pessoa. Se continuar, vira uma conversa nova na sua conta.", "info", 7000);
     if (window.innerWidth <= 900) $("#chat").scrollIntoView({ block: "start" });
   }
@@ -734,6 +735,8 @@
       ed.textos = [];
       ed.sel = null; ed.sels = [];
       await ed.carregar(it.url, it.formato);
+      ed.corMarca = corDe(it);
+      ed.sujarBase();
       if (semLogo) ed.logo = { ...ed.logo, id: null }; else aplicarLogoPadrao();
       if ((it.copy && it.copy.length) || it.layout) {
         if (!it.camadas) await comporArte(it);
@@ -1077,6 +1080,13 @@
     return { textos, degrade };
   }
 
+  // imagens feitas pela IA recebem a correção para as cores exatas da paleta
+  function ehDaIA(it) { return !!it && !/^(local|tpl)-/.test(String(it.id)) && !it.semIA && !it.deTemplate && !it.tplCampo; }
+  function corDe(it) {
+    const padrao = Number(S.marca?.cor_marca_forca ?? 80);
+    return ehDaIA(it) ? { forca: Math.max(0, Math.min(100, padrao)), ampla: !!it.layout } : { forca: 0, ampla: false };
+  }
+
   // ---- arte completa: textos localizados pela IA viram camadas no mesmo lugar
   function camadasDeBlocos(blocos, img, W, H) {
     const ctx = document.createElement("canvas").getContext("2d");
@@ -1213,8 +1223,9 @@
 
   // monta a prévia (imagem + textos + logo) igual ao que o editor abre
   async function comporArte(it) {
-    const soLogo = !!it.layout && (!it.copy || !it.copy.length);   // arte completa: só falta o logo oficial
-    if (!soLogo && (!it.copy || !it.copy.length)) { it.preview = null; it.camadas = null; return; }
+    const semTexto = !it.copy || !it.copy.length;
+    const soLogo = semTexto && (!!it.layout || ehDaIA(it));   // arte completa (ou só a imagem): logo e cores da marca
+    if (!soLogo && semTexto) { it.preview = null; it.camadas = null; return; }
     try {
       await prontos;
       const img = await carregarImagem(it.url);
@@ -1227,6 +1238,7 @@
       const e = new Editor(document.createElement("canvas"));
       LOGOS.forEach((im, id) => e.registrarLogo(id, im));
       await e.carregar(it.url, it.formato || null);
+      e.paleta = ed.paleta; e.corMarca = corDe(it);
       e.logo = { ...it.camadas.logo };
       e.textos = JSON.parse(JSON.stringify(it.camadas.textos));
       e.degrade = { ...it.camadas.degrade };
@@ -1349,6 +1361,7 @@
       });
       inp.addEventListener("change", () => ed.marcar());
     });
+    ligarDeslizador($("#cor-marca"), (v) => { ed.corMarca = { ...ed.corMarca, forca: v }; ed.sujarBase(); }, (v) => v + "%");
     swatches($("#filtro-cores"), { comNenhum: true });
     $("#filtro-cores").addEventListener("click", (ev) => {
       const b = ev.target.closest(".amostra");
@@ -1617,6 +1630,8 @@
     }
     // ajustes
     $$("[data-adj]").forEach((inp) => { inp.value = ed.adj[inp.dataset.adj]; inp.previousElementSibling.value = inp.value; });
+    const cm = (ed.corMarca && ed.corMarca.forca) || 0;
+    $("#cor-marca").value = cm; $("#cor-marca").previousElementSibling.value = cm + "%";
     marcarSwatch($("#filtro-cores"), ed.filtro.cor || "");
     $("#filtro-forca").value = ed.filtro.forca; $("#filtro-forca").previousElementSibling.value = ed.filtro.forca;
     marcarSwatch($("#degrade-cores"), ed.degrade.forca ? ed.degrade.cor : "");

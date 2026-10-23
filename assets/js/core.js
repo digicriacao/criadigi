@@ -160,7 +160,7 @@
         nunca: "Clichê corporativo de banco de imagens. Excesso de efeito neon ou luz pink artificial que tire o realismo. Tom amarelado na luz. Imagem inteira tingida de pink: preservar o equilíbrio entre áreas densas e respiros. Imagens escuras demais que atrapalhem a leitura do título. Muitos elementos competindo por atenção. Logotipos de outras marcas. Texto escrito na imagem.",
         logo_padrao: null, logo_posicao: "inf-dir", logo_tamanho: 16,
         modelo: "gemini-nano-banana-2.1", resolucao: "2K", max_referencias: 4,
-        permitir_texto_ia: false, textos_ia: true, modelo_texto: "gemini-2.5-flash", modelo_layout: "gemini-3-pro-image", estilo_icones: "Ícones de linha simples e geométricos, traço uniforme com pontas arredondadas, em pink #EA0356 com detalhes em preto #2D2D2D. Nada de emoji, clipart, 3D ou gradiente.",
+        permitir_texto_ia: false, textos_ia: true, modelo_texto: "gemini-2.5-flash", modelo_layout: "gemini-3-pro-image", cor_marca_forca: 80, estilo_icones: "Ícones de linha simples e geométricos, traço uniforme com pontas arredondadas, em pink #EA0356 com detalhes em preto #2D2D2D. Nada de emoji, clipart, 3D ou gradiente.",
         tom_de_voz: "Claro, próximo e confiante, como um consultor especialista sem arrogância.",
         anon_hora: 10, anon_dia: 20, anon_ip_dia: 100, conta_hora: 30, conta_dia: 100, limite_dia: 1000, dominios_conta: "",
       },

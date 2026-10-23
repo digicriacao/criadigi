@@ -44,6 +44,7 @@
       this.out = { w: 1080, h: 1080 };
       this.adj = { brilho: 0, contraste: 0, saturacao: 0, calor: 0 };
       this.filtro = { cor: null, forca: 0 };
+      this.corMarca = { forca: 0, ampla: false };   // correção para as cores exatas da paleta
       this.degrade = { cor: "#222323", forca: 0, lado: "baixo" };
       this.logo = { id: null, pos: "inf-dir", tamanho: 16, x: null, y: null };
       this.textos = [];
@@ -190,7 +191,7 @@
     _estado() {
       return JSON.stringify({
         srcId: this.srcId, rot: this.rot, flipH: this.flipH, flipV: this.flipV, crop: this.crop, out: this.out,
-        adj: this.adj, filtro: this.filtro, degrade: this.degrade, logo: this.logo, textos: this.textos,
+        adj: this.adj, filtro: this.filtro, corMarca: this.corMarca, degrade: this.degrade, logo: this.logo, textos: this.textos,
       });
     }
 
@@ -425,6 +426,18 @@
       x.imageSmoothingQuality = "high";
       const c = this.crop;
       x.drawImage(this.srcC, c.x, c.y, c.w, c.h, 0, 0, W, H);
+      if (this.corMarca && this.corMarca.forca > 0 && this.paleta && this.paleta.length) {
+        // a correção é pesada: guarda o resultado e só refaz se a imagem, o recorte ou a força mudarem
+        const chave = [this.srcId, this.rot, this.flipH, this.flipV, JSON.stringify(c), W, H, this.corMarca.forca, this.corMarca.ampla, this.paleta.join()].join("|");
+        if (this._cacheCor && this._cacheCor.chave === chave) x.drawImage(this._cacheCor.cv, 0, 0);
+        else {
+          corrigirPaleta(x, W, H, this.paleta, this.corMarca);
+          const cv = (this._cacheCor && this._cacheCor.cv) || document.createElement("canvas");
+          cv.width = W; cv.height = H;
+          cv.getContext("2d").drawImage(b, 0, 0);
+          this._cacheCor = { chave, cv };
+        }
+      }
       ajustarPixels(x, W, H, this.adj);
       if (this.filtro.cor && this.filtro.forca > 0) {
         x.save();
@@ -929,6 +942,91 @@
     }
     return saida;
   }
+  // ---- cores da marca
+  // A IA nunca acerta o hex exato. Aqui os tons próximos das cores da paleta são
+  // puxados para elas: o matiz e a saturação vão para a cor oficial, a luz fica
+  // (preserva sombra e volume). Cinzas quase neutros perdem o tom quente/frio.
+  // ampla: true (artes completas) também traz roxos/lilás para o pink e encaixa
+  // áreas chapadas exatamente na cor da paleta.
+  function rgbHsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
+    if (mx === mn) return [0, 0, l];
+    const d = mx - mn;
+    const s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    let h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return [h * 60, s, l];
+  }
+  function hslRgb(h, s, l) {
+    h = ((h % 360) + 360) % 360 / 360;
+    if (!s) { const v = l * 255; return [v, v, v]; }
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+    const f = (t) => { t = (t + 1) % 1; return t < 1 / 6 ? p + (q - p) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p; };
+    return [f(h + 1 / 3) * 255, f(h) * 255, f(h - 1 / 3) * 255];
+  }
+  const suave = (x, a, b) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  function difHue(a, b) { let d = b - a; d = ((d + 540) % 360) - 180; return d; }
+  function corrigirPaleta(ctx, W, H, paleta, cfg) {
+    const k = Math.max(0, Math.min(1, cfg.forca / 100));
+    const cores = paleta.map((hex) => {
+      const n = parseInt(String(hex).slice(1), 16);
+      const rgb = [n >> 16, (n >> 8) & 255, n & 255];
+      return { rgb, hsl: rgbHsl(...rgb) };
+    });
+    const vivas = cores.filter((c) => c.hsl[1] > 0.35 && c.hsl[2] > 0.15 && c.hsl[2] < 0.85);
+    if (!vivas.length) return;
+    // faixa de matiz: para o lado do roxo/magenta vai longe; para o lado do vermelho/laranja
+    // quase nada (pele, madeira e objetos vermelhos ficam como estão)
+    const faixaRoxo = cfg.ampla ? 85 : 38;
+    const faixaVermelho = 18;
+    const img = ctx.getImageData(0, 0, W, H);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+      const [h, s, l] = rgbHsl(r, g, b);
+      if (s < 0.14) {
+        // cinza quase neutro: tira o tom (sem mexer na luz)
+        if (s > 0.01 && l > 0.06 && l < 0.97) {
+          const w = k * 0.8 * (1 - suave(s, 0.06, 0.14));
+          const ns = s * (1 - w);
+          const [nr, ng, nb] = hslRgb(h, ns, l);
+          d[i] = nr; d[i + 1] = ng; d[i + 2] = nb;
+        }
+        continue;
+      }
+      // cor da marca mais próxima pelo matiz
+      let alvo = vivas[0], dh = difHue(h, alvo.hsl[0]);
+      for (const c of vivas) { const x = difHue(h, c.hsl[0]); if (Math.abs(x) < Math.abs(dh)) { alvo = c; dh = x; } }
+      const ad = Math.abs(dh);
+      // dh > 0: a cor está mais para o roxo; dh < 0: mais para o vermelho
+      const faixa = dh > 0 ? faixaRoxo : faixaVermelho;
+      if (ad > faixa) continue;
+      const cheio = dh > 0 ? (cfg.ampla ? 0.7 : 0.55) : 0.35;
+      // peso: perto do matiz e bem saturado (pele e lábios, menos saturados, quase não mudam)
+      const satMin = dh > 0 ? 0.32 : 0.5;
+      const w = k * (1 - suave(ad, faixa * cheio, faixa)) * suave(s, satMin, satMin + 0.3) * suave(l, 0.08, 0.2) * (1 - suave(l, 0.9, 0.98));
+      if (w <= 0.001) continue;
+      // arte completa: roxo/lilás escuro vira grafite (o preto da marca), não um vinho
+      if (cfg.ampla && dh > 22 && l < 0.42) {
+        const wr = w * (1 - suave(l, 0.3, 0.42)) + w * 0.4 * suave(l, 0.3, 0.42);
+        const [nr, ng, nb] = hslRgb(h, s * (1 - Math.min(1, wr * 1.1)), l * (1 - 0.15 * wr));
+        d[i] = nr; d[i + 1] = ng; d[i + 2] = nb;
+        continue;
+      }
+      const nh = h + dh * w;
+      const ns = s + (alvo.hsl[1] - s) * w * 0.85;
+      let [nr, ng, nb] = hslRgb(nh, ns, l);
+      // áreas chapadas bem próximas da cor oficial: encaixa no hex exato
+      if (cfg.ampla) {
+        const [ar, ag, ab] = alvo.rgb;
+        const dist = Math.abs(nr - ar) + Math.abs(ng - ag) + Math.abs(nb - ab);
+        if (dist < 70) { const t = w * (1 - dist / 70); nr += (ar - nr) * t; ng += (ag - ng) * t; nb += (ab - nb) * t; }
+      }
+      d[i] = nr; d[i + 1] = ng; d[i + 2] = nb;
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+
   // brilho, contraste, saturação e temperatura direto nos pixels
   // (funciona em todos os navegadores, inclusive Safari)
   function ajustarPixels(ctx, W, H, a) {
