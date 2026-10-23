@@ -5,6 +5,7 @@
    ===================================================================== */
 (function () {
   "use strict";
+  const { selecaoEmLote, caixaLote } = window.CriaDigi;
   const { API, FORMATOS, esc, $, $$, toast, carregarImagem, reduzirParaBase64,
     carregarFontes, arquivoParaDataURL, montarCabecalho, lum, abrirLogin, definirDominios, uid, Favicon } = window.CriaDigi;
   const { Editor, POSICOES } = window.CriaDigiEditor;
@@ -191,7 +192,7 @@
 
     // imagem de partida
     const soltar = $("#soltar-base");
-    const usarBase = async (file) => {
+    const usarBase = S.usarBase = async (file) => {
       if (!file || !file.type.startsWith("image/")) return toast("Escolha um arquivo de imagem.", "erro");
       S.base = await arquivoParaDataURL(file);
       $("#base-previa img").src = S.base;
@@ -501,7 +502,8 @@
       S.galeria = lista;
       if (!lista.length) { g.innerHTML = `<div class="vazio"><h3>Nada por aqui ainda</h3><p>Tudo o que você gerar com sua conta fica guardado aqui.</p></div>`; return; }
       g.innerHTML = `<div class="galeria-grade">${lista.map((it) => `
-        <figure class="cartao" data-gid="${esc(it.id)}">
+        <figure class="cartao" data-gid="${esc(it.id)}" data-lote-id="${esc(it.id)}">
+          ${caixaLote("Selecionar arte")}
           <img src="${esc(it.url)}" alt="${esc(it.prompt || "")}" loading="lazy" crossorigin="anonymous">
           <figcaption>
             <span class="g-prompt" title="${esc(it.prompt || "")}">${esc(it.prompt || "Sem descrição")}</span>
@@ -515,6 +517,14 @@
             </span>
           </figcaption>
         </figure>`).join("")}</div>`;
+      selecaoEmLote(g, {
+        nome: ["arte", "artes"], feminino: true,
+        aoApagar: async (ids) => {
+          await API.apagarGeracoes((S.galeria || []).filter((x) => ids.includes(String(x.id))));
+          S.galeria = (S.galeria || []).filter((x) => !ids.includes(String(x.id)));
+        },
+        aoEsvaziar: () => carregarGaleria(),
+      });
     } catch (e) {
       g.innerHTML = `<div class="erro-lote">${esc(e.message)}</div>`;
     }
@@ -633,7 +643,8 @@
         return;
       }
       box.innerHTML = `<div class="conversas-lista">${lista.map((c) => `
-        <div class="conversa-item ${c.id === S.conversaId ? "atual" : ""}" data-cid="${esc(c.id)}" role="button" tabindex="0">
+        <div class="conversa-item ${c.id === S.conversaId ? "atual" : ""}" data-cid="${esc(c.id)}" data-lote-id="${esc(c.id)}" role="button" tabindex="0">
+          ${caixaLote("Selecionar conversa")}
           <span class="conversa-icone" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M4 5h16v11H10l-4 3v-3H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></span>
           <span class="conversa-texto">
             <span class="conversa-titulo">${esc(c.titulo || "Conversa")}</span>
@@ -643,6 +654,15 @@
             <svg viewBox="0 0 24 24" width="16" height="16"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
           </button>
         </div>`).join("")}</div>`;
+      selecaoEmLote(box, {
+        nome: ["conversa", "conversas"], feminino: true,
+        aoApagar: async (ids) => {
+          await API.apagarConversas(ids);
+          if (ids.includes(S.conversaId)) S.conversaId = null;
+          S.conversas = (S.conversas || []).filter((c) => !ids.includes(c.id));
+        },
+        aoEsvaziar: () => carregarConversas(),
+      });
     } catch (e) {
       box.innerHTML = `<div class="erro-lote">${esc(e.message)}</div>`;
     }
@@ -1536,6 +1556,7 @@
       ? ed.textos.map((t) => `<button type="button" class="camada ${ed.sels.includes(t.id) ? "on" : ""}" data-tid="${t.id}" title="Shift + clique para selecionar vários">${esc(t.texto.split("\n")[0] || "(vazio)")}</button>`).join("")
       : `<p class="ajuda">Adicione um título, subtítulo ou chamada. Os textos usam as fontes e cores da marca.</p>`;
     $(".dica-multi").hidden = ed.textos.length < 2;
+    $("#colar-vazio").hidden = !!ed.sels.length || !lerClip();
     const sels = ed.textosSelecionados();
     const nItens = ed.sels.length;
     const t = sels.find((x) => x.id === ed.sel) || sels[0];
@@ -1689,6 +1710,7 @@
       }
       if ((ev.key === "Delete" || ev.key === "Backspace") && !digitando && ed.sels.length) { ev.preventDefault(); ed.removerSelecionado(); }
       if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "a" && !digitando && ed.modo === "editar") { ev.preventDefault(); ed.selecionarTudo(); }
+      if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "d" && !digitando && ed.sels.length && ed.modo === "editar") { ev.preventDefault(); duplicar(); }
       const setas = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
       if (setas[ev.key] && !digitando && ed.sels.length && ed.modo === "editar") {
         ev.preventDefault();
@@ -1700,6 +1722,106 @@
       else if (ev.key === "Escape" && !digitando && ed.sels.length) ed.selecionar(null);
     });
   }
+
+  // ---------------------------------------------------------------- copiar e colar
+  // Textos e logo copiados ficam numa área própria (vale entre artes e abas) e,
+  // como texto simples, na área de transferência do sistema.
+  const CLIP_KEY = "criadigi-clip";
+  const CLIP_TIPO = "application/x-criadigi+json";
+  let clipMem = null;
+  function lerClip() {
+    if (clipMem) return clipMem;
+    try { clipMem = JSON.parse(localStorage.getItem(CLIP_KEY) || "null"); } catch (_) { clipMem = null; }
+    return clipMem;
+  }
+  function gravarClip(dados) {
+    clipMem = { ...dados, texto: (dados.textos || []).map((t) => t.texto).join("\n"), quando: Date.now() };
+    try { localStorage.setItem(CLIP_KEY, JSON.stringify(clipMem)); } catch (_) { /* sem armazenamento */ }
+    ed.zerarColagens();
+    sincronizarTexto();
+  }
+  const editorAberto = () => !$("#editor").hidden && ed && ed.temImagem && ed.modo === "editar";
+  const digitandoAgora = () => /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "") || document.activeElement?.isContentEditable;
+  const rotuloClip = (d) => {
+    const n = (d.textos || []).length + (d.logo ? 1 : 0);
+    return n === 1 ? (d.logo && !d.textos.length ? "Logo" : "Texto") : `${n} itens`;
+  };
+  function copiar(recortar = false) {
+    const dados = ed.copiarSelecionados();
+    if (!dados) return null;
+    gravarClip(dados);
+    if (recortar) ed.removerSelecionado();
+    toast(`${rotuloClip(dados)} ${recortar ? "recortado" : "copiado"}${(dados.textos || []).length + (dados.logo ? 1 : 0) > 1 ? "s" : ""}. Cole com Ctrl+V, nesta ou em outra arte.`, "ok", 3000);
+    return dados;
+  }
+  function colarDoClip() {
+    const d = lerClip();
+    if (!d) return toast("Nada copiado ainda. Selecione um texto e use Copiar (Ctrl+C).", "info");
+    if (!ed.colar(d)) toast("Não consegui colar.", "erro");
+  }
+  function duplicar() {
+    const d = ed.copiarSelecionados();
+    if (!d) return;
+    ed.zerarColagens();
+    ed.colar(d);
+  }
+  // texto vindo de fora (e-mail, documento…) vira uma camada nova
+  function colarTextoSimples(texto) {
+    const t = String(texto || "").replace(/\r/g, "").trim().slice(0, 1200);
+    if (!t) return;
+    const curto = t.length < 40 && !t.includes("\n");
+    novoTexto(curto ? "titulo" : "subtitulo");
+    editarTexto({ texto: t });
+    setTimeout(() => { $("#tx-texto").blur(); }, 40);
+  }
+
+  document.addEventListener("copy", (ev) => {
+    if (!editorAberto() || digitandoAgora() || !ed.sels.length) return;
+    const d = copiar(false);
+    if (!d) return;
+    ev.clipboardData.setData("text/plain", clipMem.texto || "");
+    try { ev.clipboardData.setData(CLIP_TIPO, JSON.stringify(d)); } catch (_) { /* navegador sem tipos próprios */ }
+    ev.preventDefault();
+  });
+  document.addEventListener("cut", (ev) => {
+    if (!editorAberto() || digitandoAgora() || !ed.sels.length) return;
+    const d = copiar(true);
+    if (!d) return;
+    ev.clipboardData.setData("text/plain", clipMem.texto || "");
+    try { ev.clipboardData.setData(CLIP_TIPO, JSON.stringify(d)); } catch (_) { /* navegador sem tipos próprios */ }
+    ev.preventDefault();
+  });
+  document.addEventListener("paste", async (ev) => {
+    const cd = ev.clipboardData;
+    if (!cd) return;
+    const arquivo = [...(cd.files || [])].find((f) => f.type.startsWith("image/"));
+    const naCaixaDoChat = document.activeElement === $("#prompt");
+    // imagem colada fora do editor (ou no campo do chat) vira imagem de partida
+    if (arquivo && (!editorAberto() || naCaixaDoChat) && (naCaixaDoChat || !digitandoAgora())) {
+      ev.preventDefault();
+      if (!$("#editor").hidden) fecharEditor(true);
+      await S.usarBase(arquivo);
+      toast("Imagem colada como imagem de partida. Agora descreva o que você quer.", "ok", 5000);
+      $("#prompt").focus();
+      return;
+    }
+    if (!editorAberto() || digitandoAgora()) return;
+    ev.preventDefault();
+    let dados = null;
+    try { const j = cd.getData(CLIP_TIPO); if (j) dados = JSON.parse(j); } catch (_) { dados = null; }
+    const texto = cd.getData("text/plain");
+    const mem = lerClip();
+    if (!dados && mem && (!texto || texto === mem.texto)) dados = mem;   // copiado aqui, em outra aba/arte
+    if (dados) { if (dados !== mem) gravarClip(dados); ed.colar(dados); return; }
+    if (arquivo) return toast("Para usar uma imagem colada, volte para os resultados e cole de novo: ela vira a imagem de partida.", "info", 6000);
+    if (texto) colarTextoSimples(texto);
+  });
+  $$("[data-clip]").forEach((b) => b.addEventListener("click", () => {
+    const a = b.dataset.clip;
+    if (a === "copiar") copiar(false);
+    if (a === "colar") colarDoClip();
+    if (a === "duplicar") duplicar();
+  }));
 
   // ---------------------------------------------------------------- downloads
   function baixarBlob(blob, nome) {

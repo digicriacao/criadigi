@@ -280,6 +280,37 @@
       this.aoSelecionar(this.sel);
     }
 
+    // ---- copiar / colar
+    copiarSelecionados() {
+      const textos = this.textosSelecionados().map((t) => { const { _caixa, id, ...resto } = t; return JSON.parse(JSON.stringify(resto)); });
+      const logo = this.sels.includes("logo") && this.logo.id ? (({ _caixa, ...l }) => ({ ...l }))(this.logo) : null;
+      if (!textos.length && !logo) return null;
+      return { textos, logo };
+    }
+
+    // cola com um pequeno deslocamento (colar de novo desloca mais um pouco)
+    colar(dados, deslocar = true) {
+      if (!dados || (!(dados.textos || []).length && !dados.logo)) return false;
+      this._colagens = (this._colagens || 0) + 1;
+      const d = deslocar ? 0.025 * this._colagens : 0;
+      const ids = [];
+      for (const t of dados.textos || []) {
+        const novo = { ...JSON.parse(JSON.stringify(t)), id: window.CriaDigi.uid(), x: Math.min(0.95, (t.x || 0) + d), y: Math.min(0.95, (t.y || 0) + d) };
+        this.textos.push(novo);
+        ids.push(novo.id);
+      }
+      // a logo é uma só por arte: colar traz a logo copiada (posição e tamanho)
+      if (dados.logo && dados.logo.id && this.logos.has(dados.logo.id)) {
+        this.logo = { ...dados.logo };
+        ids.push("logo");
+      }
+      this.marcar();
+      this.selecionar(ids);
+      return true;
+    }
+
+    zerarColagens() { this._colagens = 0; }
+
     selecionarTudo() {
       const ids = this.textos.map((t) => t.id);
       if (this.logo.id && this.logos.get(this.logo.id)) ids.push("logo");

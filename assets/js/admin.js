@@ -3,7 +3,7 @@
    ===================================================================== */
 (function () {
   "use strict";
-  const { API, PAPEIS_COR, MODELOS, esc, $, $$, toast, carregarFontes, montarCabecalho, telaLogin } = window.CriaDigi;
+  const { API, PAPEIS_COR, MODELOS, esc, $, $$, toast, carregarFontes, montarCabecalho, telaLogin, selecaoEmLote, caixaLote } = window.CriaDigi;
 
   const S = { sessao: null, marca: {}, cores: [], arquivos: [], estilos: [], formatos: [], secao: "identidade" };
 
@@ -653,7 +653,8 @@
           S.criacoes = lista;
           $("#lista-criacoes").innerHTML = lista.length ? `<p class="ajuda" style="margin-bottom:10px">${lista.length >= 200 ? "Mostrando as 200 mais recentes. Use a busca para achar outras." : `${lista.length} arte${lista.length > 1 ? "s" : ""}.`}</p>
             <div class="admin-criacoes">${lista.map((g) => `
-              <div class="admin-criacao" data-gid="${esc(g.id)}">
+              <div class="admin-criacao" data-gid="${esc(g.id)}" data-lote-id="${esc(g.id)}">
+                ${caixaLote("Selecionar arte")}
                 <a href="${esc(g.url)}" target="_blank" rel="noopener"><img src="${esc(g.url)}" alt="" loading="lazy"></a>
                 <div class="info">
                   <b title="${esc(g.email || "")}">${esc(g.email || "Sem e-mail")}</b>
@@ -665,6 +666,10 @@
                   </div>
                 </div>
               </div>`).join("")}</div>` : `<p class="ajuda">Nenhuma arte encontrada.</p>`;
+          if (lista.length) selecaoEmLote($("#lista-criacoes"), {
+            nome: ["arte", "artes"], feminino: true,
+            aoApagar: async (ids) => { await API.apagarGeracoes((S.criacoes || []).filter((x) => ids.includes(String(x.id)))); },
+          });
         } catch (e) {
           $("#lista-criacoes").innerHTML = `<div class="erro-lote">${esc(e.message)}</div>`;
         }
@@ -695,7 +700,8 @@
         try {
           const lista = await API.conversas({ todas: true, busca: q, limite: 200 });
           $("#lista-conversas").innerHTML = lista.length ? `<div class="conversas-lista">${lista.map((c) => `
-            <div class="conversa-item" data-cid="${esc(c.id)}" role="button" tabindex="0">
+            <div class="conversa-item" data-cid="${esc(c.id)}" data-lote-id="${esc(c.id)}" role="button" tabindex="0">
+              ${caixaLote("Selecionar conversa")}
               <span class="conversa-icone" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M4 5h16v11H10l-4 3v-3H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></span>
               <span class="conversa-texto">
                 <span class="conversa-titulo">${esc(c.titulo || "Conversa")}</span>
@@ -705,6 +711,10 @@
                 <svg viewBox="0 0 24 24" width="16" height="16"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
               </button>
             </div>`).join("")}</div>` : `<p class="ajuda">Nenhuma conversa encontrada.</p>`;
+          if (lista.length) selecaoEmLote($("#lista-conversas"), {
+            nome: ["conversa", "conversas"], feminino: true,
+            aoApagar: async (ids) => { await API.apagarConversas(ids); $("#conversa-aberta").hidden = true; },
+          });
         } catch (e) {
           $("#lista-conversas").innerHTML = `<div class="erro-lote">${esc(e.message)}</div>`;
         }

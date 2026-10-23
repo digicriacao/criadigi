@@ -799,3 +799,28 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--r
   .editor-acoes { margin-left: auto; }
   .botao-versoes { padding-left: 10px; padding-right: 10px; }
 }
+
+/* seleção em lote (apagar várias) */
+.barra-lote { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; min-height: 34px; }
+.barra-lote .checar-sm { margin-left: 0; }
+.lote-n { font-size: 13px; font-weight: 600; color: var(--rosa); }
+.lote-acoes { margin-left: auto; display: flex; gap: 6px; }
+.marcar-lote-wrap { display: inline-grid; place-items: center; cursor: pointer; flex: none; }
+.marcar-lote-wrap input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.marcar-lote-wrap span {
+  width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--line); background: var(--surface);
+  display: grid; place-items: center; transition: background .12s, border-color .12s;
+}
+.marcar-lote-wrap input:checked + span { background: var(--rosa); border-color: var(--rosa); }
+.marcar-lote-wrap input:checked + span::after { content: ""; width: 10px; height: 5px; border: 2.5px solid #fff; border-top: 0; border-right: 0; transform: translateY(-1px) rotate(-45deg); }
+.marcar-lote-wrap input:focus-visible + span { outline: 2px solid var(--rosa); outline-offset: 2px; }
+/* nos cartões: no canto, aparece ao passar o mouse ou quando já há seleção */
+.cartao[data-lote-id], .admin-criacao[data-lote-id] { position: relative; }
+.cartao > .marcar-lote-wrap, .admin-criacao > .marcar-lote-wrap { position: absolute; top: 8px; left: 8px; z-index: 2; opacity: 0; transition: opacity .12s; }
+.cartao > .marcar-lote-wrap span, .admin-criacao > .marcar-lote-wrap span { box-shadow: 0 1px 4px rgba(0,0,0,.25); }
+.cartao:hover > .marcar-lote-wrap, .admin-criacao:hover > .marcar-lote-wrap,
+.selecionando .marcar-lote-wrap, .marcado > .marcar-lote-wrap, .marcar-lote-wrap:focus-within { opacity: 1; }
+@media (hover: none) { .cartao > .marcar-lote-wrap, .admin-criacao > .marcar-lote-wrap { opacity: 1; } }
+.marcado.cartao, .marcado.admin-criacao { outline: 3px solid var(--rosa); outline-offset: -3px; }
+.selecionando .cartao[data-lote-id], .selecionando .admin-criacao { cursor: pointer; }
+.conversa-item.marcado { border-color: var(--rosa); background: var(--rosa-fundo); }

@@ -725,6 +725,22 @@
       return data.map((g) => ({ ...g, url: sb.storage.from(B.geracoes).getPublicUrl(g.caminho).data.publicUrl }));
     },
 
+    // apaga várias artes de uma vez (arquivos + linhas)
+    async apagarGeracoes(lista) {
+      const ids = lista.map((g) => g.id);
+      if (DEMO) { const d = demo(); d.geracoes = d.geracoes.filter((x) => !ids.includes(x.id)); demoSalvar(); return; }
+      const caminhos = lista.flatMap((g) => [g.caminho, g.textos && g.textos.original].filter(Boolean));
+      for (let i = 0; i < caminhos.length; i += 100) await sb.storage.from(B.geracoes).remove(caminhos.slice(i, i + 100));
+      const { error } = await sb.from(T.geracoes).delete().in("id", ids);
+      if (error) throw error;
+    },
+
+    async apagarConversas(ids) {
+      if (DEMO) { const d = demo(); d.conversas = (d.conversas || []).filter((c) => !ids.includes(c.id)); demoSalvar(); return; }
+      const { error } = await sb.from(T.conversas).delete().in("id", ids);
+      if (error) throw error;
+    },
+
     async apagarGeracao(g) {
       if (DEMO) { const d = demo(); d.geracoes = d.geracoes.filter((x) => x.id !== g.id); demoSalvar(); return; }
       await sb.storage.from(B.geracoes).remove([g.caminho]);
@@ -1164,6 +1180,94 @@
     });
   }
 
+  // ================================================================ seleção em lote (apagar várias)
+  // Cada item da lista precisa de [data-lote-id] e de um <input type="checkbox" class="marcar-lote">.
+  // opcoes: { nome: ["arte", "artes"], aoApagar: async (ids) => {} }
+  function caixaLote(rotulo = "Selecionar") {
+    return `<label class="marcar-lote-wrap" title="${rotulo}"><input type="checkbox" class="marcar-lote" aria-label="${rotulo}"><span></span></label>`;
+  }
+  function selecaoEmLote(box, opcoes) {
+    box.__lote = opcoes;
+    const [um, varios] = opcoes.nome || ["item", "itens"];
+    const fem = opcoes.feminino ?? /a$/.test(um);
+    box.querySelector(":scope > .barra-lote")?.remove();
+    const barra = document.createElement("div");
+    barra.className = "barra-lote";
+    barra.innerHTML = `
+      <label class="checar-sm"><input type="checkbox" data-lote-todos> Selecionar ${fem ? "todas" : "todos"}</label>
+      <span class="lote-n" data-lote-n></span>
+      <span class="lote-acoes">
+        <button type="button" class="btn btn-sm btn-ghost" data-lote-limpar hidden>Cancelar</button>
+        <button type="button" class="btn btn-sm btn-perigo" data-lote-apagar disabled>Apagar selecionad${fem ? "as" : "os"}</button>
+      </span>`;
+    box.prepend(barra);
+    const itens = () => [...box.querySelectorAll("[data-lote-id]")];
+    const marcados = () => itens().filter((el) => el.querySelector(".marcar-lote")?.checked);
+    const atualizar = () => {
+      const n = marcados().length, total = itens().length;
+      box.classList.toggle("selecionando", n > 0);
+      itens().forEach((el) => el.classList.toggle("marcado", !!el.querySelector(".marcar-lote")?.checked));
+      $("[data-lote-n]", barra).textContent = n ? `${n} ${n === 1 ? um : varios} selecionad${fem ? "a" : "o"}${n === 1 ? "" : "s"}` : "";
+      $("[data-lote-apagar]", barra).disabled = !n;
+      $("[data-lote-limpar]", barra).hidden = !n;
+      const todos = $("[data-lote-todos]", barra);
+      todos.checked = n > 0 && n === total; todos.indeterminate = n > 0 && n < total;
+      barra.hidden = !total;
+    };
+    atualizar();
+    if (box.__loteLigado) { box.__loteAtualizar = atualizar; return; }
+    box.__loteLigado = true;
+    box.__loteAtualizar = atualizar;
+    let ultimo = null;
+    box.addEventListener("click", async (ev) => {
+      const o = box.__lote;
+      const b = box.querySelector(":scope > .barra-lote");
+      if (ev.target.closest("[data-lote-limpar]")) { itens().forEach((el) => { const c = el.querySelector(".marcar-lote"); if (c) c.checked = false; }); return box.__loteAtualizar(); }
+      if (ev.target.closest("[data-lote-apagar]")) {
+        const ids = marcados().map((el) => el.dataset.loteId);
+        const [u, v] = o.nome || ["item", "itens"];
+        const fem = o.feminino ?? /a$/.test(u);
+        if (!ids.length || !confirm(`Apagar ${ids.length} ${ids.length === 1 ? u : v}? Não dá para desfazer.`)) return;
+        const btn = $("[data-lote-apagar]", b);
+        btn.disabled = true; btn.textContent = "Apagando…";
+        try {
+          await o.aoApagar(ids);
+          ids.forEach((id) => box.querySelector(`[data-lote-id="${CSS.escape(id)}"]`)?.remove());
+          toast(`${ids.length} ${ids.length === 1 ? u : v} apagad${fem ? "a" : "o"}${ids.length === 1 ? "" : "s"}.`, "ok");
+        } catch (e) { toast(e.message, "erro", 7000); }
+        btn.textContent = `Apagar selecionad${fem ? "as" : "os"}`;
+        box.__loteAtualizar();
+        if (!itens().length && o.aoEsvaziar) o.aoEsvaziar();
+        return;
+      }
+      const caixa = ev.target.closest(".marcar-lote");
+      const item = ev.target.closest("[data-lote-id]");
+      if (caixa && item) {
+        // Shift + clique: marca o intervalo
+        if (ev.shiftKey && ultimo && ultimo !== item) {
+          const l = itens(); const a = l.indexOf(ultimo), z = l.indexOf(item);
+          l.slice(Math.min(a, z), Math.max(a, z) + 1).forEach((el) => { const c = el.querySelector(".marcar-lote"); if (c) c.checked = caixa.checked; });
+        }
+        ultimo = item;
+        ev.stopPropagation();
+        return box.__loteAtualizar();
+      }
+      if (ev.target.closest(".marcar-lote-wrap")) { ev.stopPropagation(); return; }
+      // com algo marcado, clicar no item marca/desmarca em vez de abrir
+      if (item && box.classList.contains("selecionando") && !ev.target.closest("button, a")) {
+        const c = item.querySelector(".marcar-lote");
+        if (c) { c.checked = !c.checked; ultimo = item; box.__loteAtualizar(); }
+        ev.stopPropagation(); ev.preventDefault();
+      }
+    }, true);
+    box.addEventListener("change", (ev) => {
+      if (ev.target.matches("[data-lote-todos]")) {
+        itens().forEach((el) => { const c = el.querySelector(".marcar-lote"); if (c) c.checked = ev.target.checked; });
+        box.__loteAtualizar();
+      }
+    });
+  }
+
   // ================================================================ favicon animado
   // Bolinha pink pulsando. Enquanto a IA trabalha, ganha um anel girando.
   // (O favicon.svg é o reserva, para quando o JavaScript ainda não rodou.)
@@ -1223,6 +1327,6 @@
     API, FORMATOS, PAPEIS_COR, MODELOS, proporcaoIA,
     esc, $, $$, uid, toast, espera,
     arquivoParaDataURL, carregarImagem, reduzirParaBase64, carregarFontes,
-    montarCabecalho, telaLogin, lum, definirTema, abrirLogin, definirDominios, Favicon,
+    montarCabecalho, telaLogin, lum, definirTema, abrirLogin, definirDominios, Favicon, selecaoEmLote, caixaLote,
   };
 })();
