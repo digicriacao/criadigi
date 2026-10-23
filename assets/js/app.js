@@ -196,8 +196,9 @@
       $("#base-previa img").src = S.base;
       $("#base-previa").hidden = false;
       soltar.hidden = true;
+      // quem envia uma imagem de partida quer começar dela, não ajustar a anterior
+      if (S.foco) definirFoco(null);
       atualizarAnexos();
-      if (S.foco) toast("Para partir desta imagem, tire a seleção da imagem em ajuste no chat (×).", "info", 6000);
     };
     $("#arquivo-base").addEventListener("change", (ev) => usarBase(ev.target.files[0]));
     ligarSoltar(soltar, (files) => usarBase(files[0]));
@@ -353,6 +354,9 @@
     try {
       const base = refinar ? await reduzirParaBase64(foco.url) : usaBase ? await reduzirParaBase64(S.base) : null;
       const fotos = await Promise.all(fotosPessoas.map((f) => reduzirParaBase64(f.url, 1024)));
+      const layoutAtual = refinar && !!foco.layout;
+      // amostra das fontes da marca: usada quando a IA recria uma arte completa
+      const tipografia = (usaBase || layoutAtual) && !focoTpl ? await amostraTipografica().catch(() => null) : null;
       const r = await API.gerar({
         prompt,
         historico: historicoAntes,
@@ -367,6 +371,8 @@
         textos_atuais: refinar && foco.copy ? foco.copy : [],
         posicao_atual: refinar && foco.posicao ? foco.posicao : null,
         sem_textos: !!focoTpl,
+        layout: layoutAtual,
+        tipografia,
       });
       if (prompt) S.historico.push(prompt);
 
@@ -384,10 +390,11 @@
         return;
       }
 
+      const ehLayout = !!r.layout;
       const itens = r.imagens.map((im) => ({
-        ...im, formato, prompt, tplCampo: focoTpl ? focoTpl.campo : undefined,
-        copy: r.textos || (refinar && foco.copy ? foco.copy : null),
-        posicao: r.posicao || (refinar ? foco.posicao : null),
+        ...im, formato, prompt, tplCampo: focoTpl ? focoTpl.campo : undefined, layout: ehLayout || undefined,
+        copy: ehLayout ? null : r.textos || (refinar && foco.copy ? foco.copy : null),
+        posicao: ehLayout ? null : r.posicao || (refinar ? foco.posicao : null),
       }));
       S.resultados.unshift(...itens);
       $(".lote-grade", lote).innerHTML = itens.map((it) => cartaoResultado(it, formato)).join("");
@@ -507,7 +514,7 @@
       return;
     }
     const formato = formatoDe(it.formato);
-    const item = { ...it, formato, copy: it.textos && it.textos.textos ? it.textos.textos : null, posicao: it.textos ? it.textos.posicao : null };
+    const item = { ...it, formato, copy: it.textos && it.textos.textos ? it.textos.textos : null, posicao: it.textos ? it.textos.posicao : null, layout: !!(it.textos && it.textos.layout) };
     if (b && b.dataset.acao === "ajustar") {
       if (!S.resultados.some((r) => r.id === item.id)) S.resultados.push(item);
       definirFoco(item); $("#prompt").focus(); return;
@@ -528,7 +535,7 @@
     return {
       id: String(it.id), url: guardavel(it.url) ? it.url : null, prompt: it.prompt || "",
       formato: resumoFormato(it.formato), copy: it.copy || null, posicao: it.posicao || null,
-      tplCampo: it.tplCampo || undefined,
+      tplCampo: it.tplCampo || undefined, layout: it.layout || undefined,
     };
   }
 
@@ -668,7 +675,7 @@
     S.resultados = novos.reverse();
     mostrarAba("resultados");
     if (ultimo) definirFoco(ultimo);
-    Promise.all(novos.filter((it) => it.copy && it.copy.length).map(comporArte)).then(() => definirFoco(S.foco));
+    Promise.all(novos.filter((it) => (it.copy && it.copy.length) || it.layout).map(comporArte)).then(() => definirFoco(S.foco));
     if (!S.conversaId) toast("Você está vendo a conversa de outra pessoa. Se continuar, vira uma conversa nova na sua conta.", "info", 7000);
     if (window.innerWidth <= 900) $("#chat").scrollIntoView({ block: "start" });
   }
@@ -689,7 +696,7 @@
       ed.sel = null; ed.sels = [];
       await ed.carregar(it.url, it.formato);
       if (semLogo) ed.logo = { ...ed.logo, id: null }; else aplicarLogoPadrao();
-      if (it.copy && it.copy.length) {
+      if ((it.copy && it.copy.length) || it.layout) {
         if (!it.camadas) await comporArte(it);
         if (it.camadas) {
           ed.textos = JSON.parse(JSON.stringify(it.camadas.textos));
@@ -784,6 +791,7 @@
       const item = {
         ...g, formato: formatoDe(g.formato), dono: { id: g.user_id, email: g.email || "" },
         copy: g.textos && g.textos.textos ? g.textos.textos : null, posicao: g.textos ? g.textos.posicao : null,
+        layout: !!(g.textos && g.textos.layout),
       };
       await abrirNoEditor(item);
       if (item.dono.id !== S.sessao.id) toast(`Você está editando a arte de ${item.dono.email}. Ao salvar, a versão editada vai para as criações dessa pessoa.`, "info", 8000);
@@ -939,15 +947,52 @@
     return { textos, degrade };
   }
 
+  // amostra das fontes da marca, enviada à IA para ela copiar o desenho das letras
+  let amostraCache = null;
+  async function amostraTipografica() {
+    await prontos;
+    const fT = fontePara("titulo"), fX = fontePara("texto");
+    const chave = fT + "|" + fX;
+    if (amostraCache && amostraCache.chave === chave) return amostraCache.img;
+    const W = 1400, H = 620;
+    const c = document.createElement("canvas"); c.width = W; c.height = H;
+    const x = c.getContext("2d");
+    x.fillStyle = "#FFFFFF"; x.fillRect(0, 0, W, H);
+    x.textBaseline = "top";
+    const caber = (fonte, peso, px, texto, maxW = W - 120) => {
+      x.font = `${peso} ${px}px "${fonte}", sans-serif`;
+      const w = x.measureText(texto).width;
+      if (w > maxW) x.font = `${peso} ${Math.floor(px * maxW / w)}px "${fonte}", sans-serif`;
+    };
+    const rotulo = (t, y) => { x.fillStyle = "#8A8C8E"; x.font = `500 26px "Hanken Grotesk", sans-serif`; x.fillText(t, 60, y); };
+    const pT = pesoDaFonte(fT, 700), pX = pesoDaFonte(fX, 400);
+    rotulo(`TÍTULOS · ${fT}`, 40);
+    x.fillStyle = "#EA0356"; caber(fT, pT, 112, "FIM DE ANO 2026"); x.fillText("FIM DE ANO 2026", 60, 80);
+    x.fillStyle = "#232323"; caber(fT, pT, 64, "Aa Bb Cc Ç ã é 24/12 01/01"); x.fillText("Aa Bb Cc Ç ã é 24/12 01/01", 60, 210);
+    rotulo(`TEXTOS · ${fX}`, 330);
+    x.fillStyle = "#2D2D2D"; caber(fX, pX, 46, "Aa Bb Cc Dd Ee Ff Gg · 0123456789 · ção ê ú");
+    x.fillText("Nos demais dias, trabalharemos normalmente.", 60, 372);
+    x.fillText("Aa Bb Cc Dd Ee Ff Gg · 0123456789 · ção ê ú", 60, 436);
+    x.fillStyle = "#EA0356"; x.fillRect(60, 520, 380, 64);
+    x.fillStyle = "#FFFFFF"; x.font = `${pT} 34px "${fT}", sans-serif`; x.fillText("CHAMADA", 92, 534);
+    const url = c.toDataURL("image/jpeg", 0.88);
+    const img = { data: url.split(",")[1], mime: "image/jpeg" };
+    amostraCache = { chave, img };
+    return img;
+  }
+
   // monta a prévia (imagem + textos + logo) igual ao que o editor abre
   async function comporArte(it) {
-    if (!it.copy || !it.copy.length) { it.preview = null; it.camadas = null; return; }
+    const soLogo = !!it.layout && (!it.copy || !it.copy.length);   // arte completa: só falta o logo oficial
+    if (!soLogo && (!it.copy || !it.copy.length)) { it.preview = null; it.camadas = null; return; }
     try {
       await prontos;
       const img = await carregarImagem(it.url);
       const W = it.formato ? it.formato.w : img.naturalWidth;
       const H = it.formato ? it.formato.h : img.naturalHeight;
-      it.camadas = calcularCamadas(it.copy, it.posicao, img, W, H);
+      it.camadas = soLogo
+        ? { textos: [], degrade: { cor: "#232323", forca: 0, lado: "baixo" } }
+        : calcularCamadas(it.copy, it.posicao, img, W, H);
       it.camadas.logo = logoParaFundo(img, W, H);
       const e = new Editor(document.createElement("canvas"));
       LOGOS.forEach((im, id) => e.registrarLogo(id, im));

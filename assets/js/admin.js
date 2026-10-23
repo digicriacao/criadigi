@@ -743,9 +743,12 @@
               <label class="campo checar inteiro"><input type="checkbox" name="textos_ia" ${m.textos_ia !== false ? "checked" : ""}> A IA escreve e aplica textos editáveis (título, subtítulo e chamada) quando o usuário pede</label>
               <label class="campo inteiro"><span class="rotulo">Modelo de texto (planeja e escreve os textos)</span>
                 <input type="text" name="modelo_texto" value="${esc(m.modelo_texto || "gemini-2.5-flash")}"></label>
+              <label class="campo inteiro"><span class="rotulo">Modelo para recriar artes completas (com textos, cards e ícones)</span>
+                <select name="modelo_layout">${MODELOS.map((x) => `<option value="${x.id}" ${(m.modelo_layout || "gemini-3-pro-image") === x.id ? "selected" : ""}>${esc(x.nome)}</option>`).join("")}</select></label>
               <label class="campo checar inteiro"><input type="checkbox" name="permitir_texto_ia" ${m.permitir_texto_ia ? "checked" : ""}> Permitir que a IA desenhe textos dentro da imagem (não recomendado: o texto não fica editável)</label>
             </div>
             <p class="ajuda" style="margin-top:12px">Com os textos editáveis ligados, a IA gera a imagem sem letras e a plataforma aplica título, subtítulo e chamada com as fontes oficiais. Pedidos que mexem só no texto não geram imagem nova (não gastam crédito). 2K é o melhor equilíbrio entre qualidade e custo.</p>
+            <p class="ajuda" style="margin-top:8px">Quando o usuário anexa uma arte pronta (comunicado, cartaz, infográfico) e pede uma nova versão, a IA recria a arte inteira, com layout, ícones e textos, na identidade da marca. Nesse caso o texto fica dentro da imagem e é corrigido pelo chat. O Nano Banana Pro escreve textos com muito mais precisão.</p>
           </section>
 
           <section class="cartao-admin">
@@ -797,6 +800,7 @@
           permitir_texto_ia: f.permitir_texto_ia.checked,
           textos_ia: f.textos_ia.checked,
           modelo_texto: f.modelo_texto.value.trim() || "gemini-2.5-flash",
+          modelo_layout: f.modelo_layout.value,
           anon_hora: n("anon_hora", 0, 10), anon_dia: n("anon_dia", 0, 20), anon_ip_dia: n("anon_ip_dia", 0, 100),
           conta_hora: n("conta_hora", 1, 30), conta_dia: n("conta_dia", 1, 100),
           limite_dia: n("limite_dia", 1, 1000),

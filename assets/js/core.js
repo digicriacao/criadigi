@@ -160,7 +160,7 @@
         nunca: "Clichê corporativo de banco de imagens. Excesso de efeito neon ou luz pink artificial que tire o realismo. Tom amarelado na luz. Imagem inteira tingida de pink: preservar o equilíbrio entre áreas densas e respiros. Imagens escuras demais que atrapalhem a leitura do título. Muitos elementos competindo por atenção. Logotipos de outras marcas. Texto escrito na imagem.",
         logo_padrao: null, logo_posicao: "inf-dir", logo_tamanho: 16,
         modelo: "gemini-nano-banana-2.1", resolucao: "2K", max_referencias: 4,
-        permitir_texto_ia: false, textos_ia: true, modelo_texto: "gemini-2.5-flash",
+        permitir_texto_ia: false, textos_ia: true, modelo_texto: "gemini-2.5-flash", modelo_layout: "gemini-3-pro-image",
         tom_de_voz: "Claro, próximo e confiante, como um consultor especialista sem arrogância.",
         anon_hora: 10, anon_dia: 20, anon_ip_dia: 100, conta_hora: 30, conta_dia: 100, limite_dia: 1000, dominios_conta: "",
       },
@@ -269,7 +269,12 @@
     if (aspas[0] && (falaTitulo || !textos.length)) definir("titulo", aspas[0]);
     if (/subt[ií]tulo/.test(baixo)) definir("subtitulo", aspas[1] || "Que o próximo ano seja ainda mais extraordinário.");
     if (/chamada|bot[aã]o|cta/.test(baixo)) definir("chamada", aspas[2] || "Saiba mais");
-    // demonstração: não dá para ler a imagem de verdade, então simula textos transcritos
+    // demonstração: arte pronta anexada + "refaça / nova versão" = recria a arte completa
+    if ((p.base && p.base_tipo !== "refinar" && /(refa[cç]|recri|nova vers|vers[aã]o d|adapt)/.test(baixo)) || (p.base_tipo === "refinar" && p.layout)) {
+      return { gerar_imagem: true, textos: [], posicao: "topo", layout: true,
+        resposta: "Recriei a arte na identidade da Digi, com os mesmos textos e o mesmo layout. Para corrigir algum texto, é só pedir aqui." };
+    }
+    // demonstração (camadas): não dá para ler a imagem de verdade, então simula textos transcritos
     if (p.base && p.base_tipo !== "refinar" && !textos.length && /(mant|mesmos|use os|aproveit|fonte).{0,25}texto|texto.{0,20}(imagem|anex)/.test(baixo)) {
       definir("titulo", "Fim de ano Digi");
       definir("subtitulo", "Confraternização de 2026\nSexta, 12 de dezembro, às 19h\nEspaço Digi, São Paulo\nTraje: esporte fino com um toque de pink");
@@ -612,14 +617,15 @@
           else if (params.base && params.base_tipo === "refinar") url = await demoRefinar(params.base, d.cores, i);
           else url = demoImagem(params.proporcao, params.estilo_nome, hash(params.prompt + Date.now() + i), d.cores);
           const id = uid();
-          if (conta && params.modo !== "foto") d.geracoes.unshift({ id, user_id: conta.id, email: conta.email, url, prompt: params.prompt, formato: params.formato, estilo: params.estilo_nome, textos: plano ? { textos: plano.textos, posicao: plano.posicao } : null, criado_em: new Date().toISOString() });
+          if (conta && params.modo !== "foto") d.geracoes.unshift({ id, user_id: conta.id, email: conta.email, url, prompt: params.prompt, formato: params.formato, estilo: params.estilo_nome, textos: plano && plano.layout ? { layout: true } : plano ? { textos: plano.textos, posicao: plano.posicao } : null, criado_em: new Date().toISOString() });
           imagens.push({ id, url });
         }
         d.geracoes = d.geracoes.slice(0, 16);
         demoSalvar();
         return {
           imagens, erros: [], salvo: !!conta && params.modo !== "foto", restante_hora: restante, gerou_imagem: true,
-          textos: plano ? plano.textos : null, posicao: plano ? plano.posicao : null, resposta: plano ? plano.resposta : null,
+          layout: !!(plano && plano.layout),
+          textos: plano && !plano.layout ? plano.textos : null, posicao: plano ? plano.posicao : null, resposta: plano ? plano.resposta : null,
         };
       }
       const { data, error } = await sb.functions.invoke(F.gerar, { body: { ...params, cliente: clienteId() } });
