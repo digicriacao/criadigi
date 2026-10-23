@@ -265,8 +265,9 @@
         tipo: "icone",
         titulo: "Ícones",
         texto: "Como a IA desenha ícones quando recria uma arte (comunicados, cartazes, infográficos). O estilo escrito abaixo vale sempre; os ícones de exemplo enviados aqui são copiados no traço, nas cores e no acabamento.",
-        aceita: "image/png,image/jpeg,image/webp",
-        dica: "Envie de 3 a 8 ícones do mesmo conjunto (PNG com fundo transparente ou fundo branco). Uma imagem com vários ícones juntos também funciona.",
+        aceita: "image/png,image/jpeg,image/webp,image/svg+xml",
+        dica: "Envie de 3 a 10 ícones do mesmo conjunto (PNG, SVG ou JPG). Dê a cada um um nome do que ele é (calendário, documento, presente…): a IA usa o nome para trocar cada ícone da referência pelo equivalente da marca.",
+        manterPng: true,
         visual: (a) => `<div class="arq-visual foto" style="background:#fff"><img src="${esc(a.url)}" alt="${esc(a.descricao || a.nome)}" style="object-fit:contain;padding:10px"></div>`,
         campos: (a) => `
           <input type="text" data-campo="descricao" value="${esc(a.descricao || "")}" placeholder="O que é (ex.: calendário)" aria-label="Descrição">
@@ -276,7 +277,7 @@
         redimensionar: 800,
         rodape: `<section class="cartao-admin">
             <h2>Estilo dos ícones</h2>
-            <p class="ajuda">Descreva o traço, as cores e o acabamento. A IA troca emojis, cliparts e ícones da referência por ícones neste estilo.</p>
+            <p class="ajuda">Descreva o traço, as cores e o acabamento dos ícones enviados acima (ex.: "chapados em pink, dentro do balão Digi"). Quando há ícones enviados, eles valem mais que este texto: se o texto disser outra coisa, a IA fica em dúvida, então mantenha os dois coerentes.</p>
             <label class="campo" style="margin-top:10px"><textarea id="estilo-icones" rows="5">${esc(S.marca.estilo_icones || "")}</textarea></label>
             <div class="acoes-form"><button type="button" class="btn btn-primario" id="salvar-icones">Salvar estilo</button></div>
           </section>`,
@@ -1228,7 +1229,7 @@
       for (const file of arr) {
         try {
           let f = file;
-          if (o.redimensionar && /^image\/(png|jpeg|webp)$/.test(file.type)) f = await reduzirArquivo(file, o.redimensionar);
+          if (o.redimensionar && /^image\/(png|jpeg|webp|svg\+xml)$/.test(file.type)) f = await reduzirArquivo(file, o.redimensionar, { png: !!o.manterPng });
           const row = await API.enviarArquivo(f, { tipo: o.tipo, ...o.metaInicial(file) });
           if (o.depoisEnvio) await o.depoisEnvio(row);
           ok++;
@@ -1273,17 +1274,21 @@
     if (o.aoMontar) o.aoMontar(el);
   }
 
-  async function reduzirArquivo(file, max) {
+  // png: true mantém a transparência (ícones); SVG vira PNG para a IA conseguir ler
+  async function reduzirArquivo(file, max, { png = false } = {}) {
     const url = URL.createObjectURL(file);
     try {
       const img = await window.CriaDigi.carregarImagem(url);
-      const k = max / Math.max(img.naturalWidth, img.naturalHeight);
-      if (k >= 1) return file;
+      const svg = /svg/i.test(file.type) || /\.svg$/i.test(file.name);
+      const lado = Math.max(img.naturalWidth || 0, img.naturalHeight || 0) || max;
+      const k = svg ? max / lado : max / lado;
+      if (k >= 1 && !svg) return file;
       const c = document.createElement("canvas");
-      c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+      c.width = Math.max(1, Math.round((img.naturalWidth || max) * k)); c.height = Math.max(1, Math.round((img.naturalHeight || max) * k));
       c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-      const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.88));
-      return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+      const tipo = png || svg ? "image/png" : "image/jpeg";
+      const blob = await new Promise((r) => c.toBlob(r, tipo, 0.88));
+      return new File([blob], file.name.replace(/\.[^.]+$/, "") + (tipo === "image/png" ? ".png" : ".jpg"), { type: tipo });
     } finally { URL.revokeObjectURL(url); }
   }
 
