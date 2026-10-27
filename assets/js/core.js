@@ -361,7 +361,7 @@
   const T = {
     marca: "criadigi_marca", cores: "criadigi_cores", arquivos: "criadigi_arquivos",
     estilos: "criadigi_estilos", geracoes: "criadigi_geracoes", formatos: "criadigi_formatos",
-    templates: "criadigi_templates", conversas: "criadigi_conversas",
+    templates: "criadigi_templates", conversas: "criadigi_conversas", assets: "criadigi_assets",
   };
   const B = { marca: "criadigi-marca", geracoes: "criadigi-geracoes" };
   const F = { gerar: "criadigi-gerar", usuarios: "criadigi-usuarios" };
@@ -902,6 +902,78 @@
       return { id: data.id, url: sb.storage.from(B.geracoes).getPublicUrl(caminho).data.publicUrl };
     },
 
+    // ---------------------------------------------------------------- assets (ícones e imagens do editor)
+    // escopo: "meus" (da pessoa), "marca" (aprovados na ID, para todos) ou "todos" (admin)
+    async assets({ escopo = "meus", busca = "", filtro = "", limite = 400 } = {}) {
+      const termo = String(busca || "").trim().toLowerCase();
+      if (DEMO) {
+        const s = demoSessao();
+        const d = demo();
+        return (d.assets || []).filter((a) =>
+          escopo === "marca" ? a.marca && a.ativo !== false
+          : escopo === "todos" ? !!(s && s.admin)
+          : !!s && a.user_id === s.id)
+          .filter((a) => !filtro || (filtro === "marca" ? a.marca : !a.marca))
+          .filter((a) => !termo || (a.email || "").toLowerCase().includes(termo) || (a.nome || "").toLowerCase().includes(termo))
+          .slice(0, limite).map((a) => ({ ...a }));
+      }
+      const { data: ses } = await sb.auth.getSession();
+      let q = sb.from(T.assets).select("*").order("criado_em", { ascending: false }).limit(limite);
+      if (escopo === "marca") q = q.eq("marca", true).eq("ativo", true);
+      else if (escopo === "meus") { if (!ses.session) return []; q = q.eq("user_id", ses.session.user.id); }
+      if (filtro === "marca") q = q.eq("marca", true);
+      if (filtro === "fora") q = q.eq("marca", false);
+      if (termo) { const t = termo.replace(/[%,()]/g, " "); q = q.or(`email.ilike.%${t}%,nome.ilike.%${t}%`); }
+      const { data, error } = await q;
+      if (error) {
+        if (/does not exist|schema cache/i.test(error.message)) return [];   // tabela ainda não criada
+        throw error;
+      }
+      return data.map((a) => ({ ...a, url: sb.storage.from(B.geracoes).getPublicUrl(a.caminho).data.publicUrl }));
+    },
+
+    // guarda um asset na biblioteca da conta. arq: { blob, nome, largura, altura, tipo }
+    async enviarAsset(arq) {
+      if (DEMO) {
+        const s = demoSessao();
+        if (!s) throw new Error("Entre na sua conta para guardar seus envios.");
+        const d = demo();
+        d.assets = d.assets || [];
+        const row = { id: uid(), user_id: s.id, email: s.email, nome: arq.nome, caminho: "demo", largura: arq.largura, altura: arq.altura,
+          tipo: arq.tipo, marca: false, ativo: true, criado_em: new Date().toISOString(), url: await arquivoParaDataURL(arq.blob) };
+        d.assets.unshift(row);
+        d.assets = d.assets.slice(0, 40);
+        demoSalvar();
+        return { ...row };
+      }
+      const { data: ses } = await sb.auth.getSession();
+      if (!ses.session) throw new Error("Entre na sua conta para guardar seus envios.");
+      const ext = arq.blob.type === "image/png" ? "png" : arq.blob.type === "image/webp" ? "webp" : "jpg";
+      const caminho = `${ses.session.user.id}/assets/${uid()}.${ext}`;
+      const up = await sb.storage.from(B.geracoes).upload(caminho, arq.blob, { contentType: arq.blob.type, upsert: false });
+      if (up.error) throw new Error(/row-level|policy|Unauthorized/i.test(up.error.message) ? "Sua conta não tem permissão para guardar arquivos." : up.error.message);
+      const linha = { user_id: ses.session.user.id, email: ses.session.user.email, nome: arq.nome, caminho, largura: arq.largura, altura: arq.altura, tipo: arq.tipo };
+      const { data, error } = await sb.from(T.assets).insert(linha).select("*").single();
+      if (error) { await sb.storage.from(B.geracoes).remove([caminho]); throw error; }
+      return { ...data, url: sb.storage.from(B.geracoes).getPublicUrl(caminho).data.publicUrl };
+    },
+
+    // admin: integra à ID, muda o tipo ou desativa (vale para vários)
+    async salvarAssets(ids, patch) {
+      if (DEMO) { const d = demo(); (d.assets || []).forEach((a) => { if (ids.includes(a.id)) Object.assign(a, patch); }); demoSalvar(); return; }
+      const { error } = await sb.from(T.assets).update(patch).in("id", ids);
+      if (error) throw error;
+    },
+
+    async apagarAssets(lista) {
+      const ids = lista.map((a) => a.id);
+      if (DEMO) { const d = demo(); d.assets = (d.assets || []).filter((a) => !ids.includes(a.id)); demoSalvar(); return; }
+      const caminhos = lista.map((a) => a.caminho).filter(Boolean);
+      const { error } = await sb.from(T.assets).delete().in("id", ids);
+      if (error) throw error;
+      if (caminhos.length) await sb.storage.from(B.geracoes).remove(caminhos);
+    },
+
     async usuarios(acao, dados = {}) {
       if (DEMO) {
         const d = demo();
@@ -1180,6 +1252,34 @@
     });
   }
 
+  // ================================================================ preparar arquivo de asset
+  // Lê PNG, JPG, WebP ou SVG, reduz se for grande (mantém a transparência) e
+  // devolve { blob, nome, largura, altura, tipo }.
+  async function prepararAsset(file, max = 1600) {
+    const svg = /svg/i.test(file.type) || /\.svg$/i.test(file.name);
+    if (!svg && !/^image\/(png|jpeg|webp|gif)$/i.test(file.type)) throw new Error(`${file.name}: envie PNG, JPG, WebP ou SVG.`);
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await carregarImagem(url);
+      let w = img.naturalWidth || 0, h = img.naturalHeight || 0;
+      if (svg && (!w || !h)) { w = 1024; h = 1024; }
+      // SVG vira PNG com 1024 px no lado maior; as demais só diminuem
+      const escala = svg ? 1024 / Math.max(w, h) : Math.min(1, max / Math.max(w, h));
+      const W = Math.max(1, Math.round(w * escala)), H = Math.max(1, Math.round(h * escala));
+      const precisa = svg || W !== w || H !== h || file.type === "image/gif";
+      let blob = file;
+      if (precisa) {
+        const c = document.createElement("canvas"); c.width = W; c.height = H;
+        c.getContext("2d").drawImage(img, 0, 0, W, H);
+        const tipo = file.type === "image/jpeg" ? "image/jpeg" : "image/png";
+        blob = await new Promise((r) => c.toBlob(r, tipo, 0.9));
+      }
+      const nome = file.name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim().slice(0, 80) || "asset";
+      const ehIcone = svg || Math.max(W, H) <= 512 || /icon|[ií]cone|simbolo|símbolo/i.test(file.name);
+      return { blob, nome, largura: W, altura: H, tipo: ehIcone ? "icone" : "imagem" };
+    } finally { URL.revokeObjectURL(url); }
+  }
+
   // ================================================================ seleção em lote (apagar várias)
   // Cada item da lista precisa de [data-lote-id] e de um <input type="checkbox" class="marcar-lote">.
   // opcoes: { nome: ["arte", "artes"], aoApagar: async (ids) => {} }
@@ -1198,6 +1298,7 @@
       <span class="lote-n" data-lote-n></span>
       <span class="lote-acoes">
         <button type="button" class="btn btn-sm btn-ghost" data-lote-limpar hidden>Cancelar</button>
+        ${(opcoes.acoes || []).map((a, i) => `<button type="button" class="btn btn-sm ${a.classe || "btn-claro"}" data-lote-acao="${i}" disabled>${a.rotulo}</button>`).join("")}
         <button type="button" class="btn btn-sm btn-perigo" data-lote-apagar disabled>Apagar selecionad${fem ? "as" : "os"}</button>
       </span>`;
     box.prepend(barra);
@@ -1209,6 +1310,7 @@
       itens().forEach((el) => el.classList.toggle("marcado", !!el.querySelector(".marcar-lote")?.checked));
       $("[data-lote-n]", barra).textContent = n ? `${n} ${n === 1 ? um : varios} selecionad${fem ? "a" : "o"}${n === 1 ? "" : "s"}` : "";
       $("[data-lote-apagar]", barra).disabled = !n;
+      barra.querySelectorAll("[data-lote-acao]").forEach((b) => { b.disabled = !n; });
       $("[data-lote-limpar]", barra).hidden = !n;
       const todos = $("[data-lote-todos]", barra);
       todos.checked = n > 0 && n === total; todos.indeterminate = n > 0 && n < total;
@@ -1222,6 +1324,16 @@
     box.addEventListener("click", async (ev) => {
       const o = box.__lote;
       const b = box.querySelector(":scope > .barra-lote");
+      const acao = ev.target.closest("[data-lote-acao]");
+      if (acao) {
+        const ids = marcados().map((el) => el.dataset.loteId);
+        const a = (o.acoes || [])[Number(acao.dataset.loteAcao)];
+        if (!a || !ids.length) return;
+        acao.disabled = true;
+        try { await a.fn(ids); } catch (e) { toast(e.message, "erro", 7000); }
+        acao.disabled = false;
+        return;
+      }
       if (ev.target.closest("[data-lote-limpar]")) { itens().forEach((el) => { const c = el.querySelector(".marcar-lote"); if (c) c.checked = false; }); return box.__loteAtualizar(); }
       if (ev.target.closest("[data-lote-apagar]")) {
         const ids = marcados().map((el) => el.dataset.loteId);
@@ -1327,6 +1439,6 @@
     API, FORMATOS, PAPEIS_COR, MODELOS, proporcaoIA,
     esc, $, $$, uid, toast, espera,
     arquivoParaDataURL, carregarImagem, reduzirParaBase64, carregarFontes,
-    montarCabecalho, telaLogin, lum, definirTema, abrirLogin, definirDominios, Favicon, selecaoEmLote, caixaLote,
+    montarCabecalho, telaLogin, lum, definirTema, abrirLogin, definirDominios, Favicon, selecaoEmLote, caixaLote, prepararAsset,
   };
 })();

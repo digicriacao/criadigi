@@ -1,6 +1,6 @@
 /* =====================================================================
    CriaDigi · editor de imagem (canvas)
-   Camadas: base (recorte + ajustes + filtro + degradê) → logo → textos.
+   Camadas: base (recorte + ajustes + filtro + degradê) → imagens (assets) → logo → textos.
    Tudo é recalculado a partir do estado, então a imagem original nunca
    é perdida: dá para recortar de novo, desfazer e trocar o formato.
    ===================================================================== */
@@ -16,6 +16,8 @@
       this.aoMudar = opcoes.aoMudar || (() => {});
       this.aoSelecionar = opcoes.aoSelecionar || (() => {});
       this.logos = new Map(); // id -> HTMLImageElement
+      this.cacheImgs = new Map();   // src -> { img, pronto } das camadas de imagem
+      this.cacheTinta = new Map();  // src|cor -> canvas (ícone recolorido)
       this.historico = [];
       this.futuro = [];
       this.modo = "editar";
@@ -48,7 +50,8 @@
       this.degrade = { cor: "#222323", forca: 0, lado: "baixo" };
       this.logo = { id: null, pos: "inf-dir", tamanho: 16, x: null, y: null };
       this.textos = [];
-      this.sel = null;     // item principal (id de texto ou "logo")
+      this.imagens = [];   // camadas de imagem: { id, src, nome, x, y, largura, proporcao, opacidade, cor }
+      this.sel = null;     // item principal (id de texto, de imagem ou "logo")
       this.sels = [];      // todos os itens selecionados
     }
 
@@ -57,9 +60,10 @@
     // ------------------------------------------------------------ carregar
     async carregar(src, formato) {
       const img = await window.CriaDigi.carregarImagem(src);
-      const manterCamadas = { logo: { ...this.logo }, textos: this.textos };
+      const manterCamadas = { logo: { ...this.logo }, textos: this.textos, imagens: this.imagens };
       this._resetar();
       this.logo = manterCamadas.logo;
+      this.imagens = manterCamadas.imagens || [];
       this.src = img;
       this.fontes = new Map();
       this.srcId = this._guardarFonte(img);
@@ -191,7 +195,7 @@
     _estado() {
       return JSON.stringify({
         srcId: this.srcId, rot: this.rot, flipH: this.flipH, flipV: this.flipV, crop: this.crop, out: this.out,
-        adj: this.adj, filtro: this.filtro, corMarca: this.corMarca, degrade: this.degrade, logo: this.logo, textos: this.textos,
+        adj: this.adj, filtro: this.filtro, corMarca: this.corMarca, degrade: this.degrade, logo: this.logo, textos: this.textos, imagens: this.imagens,
       });
     }
 
@@ -203,7 +207,8 @@
       if (s.srcId && !this.fontes.has(s.srcId)) delete s.srcId;
       Object.assign(this, s);
       if (giroMudou && this.src) this._refazerFonte();
-      this.sels = this.sels.filter((id) => id === "logo" ? !!this.logo.id : this.textos.some((t) => t.id === id));
+      if (!Array.isArray(this.imagens)) this.imagens = [];
+      this.sels = this.sels.filter((id) => id === "logo" ? !!this.logo.id : this.textos.some((t) => t.id === id) || this.imagens.some((m) => m.id === id));
       if (!this.sels.includes(this.sel)) this.sel = this.sels[this.sels.length - 1] || null;
       this._baseSuja = true;
       this.desenhar();
@@ -265,6 +270,73 @@
 
     textoSelecionado() { return this.textos.find((t) => t.id === this.sel) || null; }
     textosSelecionados() { return this.textos.filter((t) => this.sels.includes(t.id)); }
+    imagensSelecionadas() { return this.imagens.filter((m) => this.sels.includes(m.id)); }
+
+    // ---- camadas de imagem (ícones, fotos, elementos)
+    _imagemDe(src) {
+      let c = this.cacheImgs.get(src);
+      if (c) return c.pronto ? c.img : null;
+      c = { img: null, pronto: false };
+      this.cacheImgs.set(src, c);
+      window.CriaDigi.carregarImagem(src).then((img) => { c.img = img; c.pronto = true; this.desenhar(); })
+        .catch(() => { c.erro = true; });
+      return null;
+    }
+
+    // adiciona uma imagem; largura = fração da largura da arte
+    async adicionarImagem(src, { nome = "", largura = 0.3, assetId = null, tipo = "imagem" } = {}) {
+      const img = await window.CriaDigi.carregarImagem(src);
+      this.cacheImgs.set(src, { img, pronto: true });
+      const prop = (img.naturalHeight || 1) / (img.naturalWidth || 1);
+      const W = this.out.w, H = this.out.h;
+      let lw = largura;
+      if (lw * W * prop > H * 0.8) lw = (H * 0.8) / (W * prop);           // não passa da altura
+      const m = {
+        id: window.CriaDigi.uid(), src, nome, assetId, tipo,
+        x: 0.5 - lw / 2, y: 0.5 - (lw * W * prop) / H / 2, largura: lw, proporcao: prop, opacidade: 1, cor: null,
+      };
+      this.imagens.push(m);
+      this.marcar();
+      this.selecionar(m.id);
+      return m;
+    }
+
+    // ordem das camadas de imagem: "frente" | "tras"
+    ordenarImagem(direcao) {
+      const sel = this.imagensSelecionadas();
+      if (!sel.length) return;
+      const resto = this.imagens.filter((m) => !sel.includes(m));
+      this.imagens = direcao === "frente" ? [...resto, ...sel] : [...sel, ...resto];
+      this.marcar(); this.desenhar();
+    }
+
+    _desenharImagem(ctx, m, W, H) {
+      const w = m.largura * W, h = w * (m.proporcao || 1);
+      const x0 = m.x * W, y0 = m.y * H;
+      m._caixa = { x0, y0, x1: x0 + w, y1: y0 + h };
+      const img = this._imagemDe(m.src);
+      if (!img) return;
+      ctx.save();
+      ctx.globalAlpha = m.opacidade == null ? 1 : m.opacidade;
+      ctx.drawImage(m.cor ? this._tinta(m.src, img, m.cor) : img, x0, y0, w, h);
+      ctx.restore();
+    }
+
+    // recolore a imagem mantendo o desenho (alfa): útil para ícones
+    _tinta(src, img, cor) {
+      const chave = src + "|" + cor;
+      let c = this.cacheTinta.get(chave);
+      if (c) return c;
+      c = document.createElement("canvas");
+      c.width = img.naturalWidth || img.width; c.height = img.naturalHeight || img.height;
+      const x = c.getContext("2d");
+      x.drawImage(img, 0, 0);
+      x.globalCompositeOperation = "source-in";
+      x.fillStyle = cor;
+      x.fillRect(0, 0, c.width, c.height);
+      this.cacheTinta.set(chave, c);
+      return c;
+    }
 
     // seleção: id único, lista de ids, ou null; somar = adiciona/tira (Shift/Ctrl + clique)
     selecionar(ids, somar = false) {
@@ -285,13 +357,14 @@
     copiarSelecionados() {
       const textos = this.textosSelecionados().map((t) => { const { _caixa, id, ...resto } = t; return JSON.parse(JSON.stringify(resto)); });
       const logo = this.sels.includes("logo") && this.logo.id ? (({ _caixa, ...l }) => ({ ...l }))(this.logo) : null;
-      if (!textos.length && !logo) return null;
-      return { textos, logo };
+      const imagens = this.imagensSelecionadas().map((m) => { const { _caixa, id, ...resto } = m; return { ...resto }; });
+      if (!textos.length && !logo && !imagens.length) return null;
+      return { textos, logo, imagens };
     }
 
     // cola com um pequeno deslocamento (colar de novo desloca mais um pouco)
     colar(dados, deslocar = true) {
-      if (!dados || (!(dados.textos || []).length && !dados.logo)) return false;
+      if (!dados || (!(dados.textos || []).length && !dados.logo && !(dados.imagens || []).length)) return false;
       this._colagens = (this._colagens || 0) + 1;
       const d = deslocar ? 0.025 * this._colagens : 0;
       const ids = [];
@@ -299,6 +372,13 @@
         const novo = { ...JSON.parse(JSON.stringify(t)), id: window.CriaDigi.uid(), x: Math.min(0.95, (t.x || 0) + d), y: Math.min(0.95, (t.y || 0) + d) };
         this.textos.push(novo);
         ids.push(novo.id);
+      }
+      for (const m of dados.imagens || []) {
+        if (!m.src) continue;
+        const nova = { ...m, id: window.CriaDigi.uid(), x: Math.min(0.95, (m.x || 0) + d), y: Math.min(0.95, (m.y || 0) + d) };
+        this.imagens.push(nova);
+        this._imagemDe(nova.src);
+        ids.push(nova.id);
       }
       // a logo é uma só por arte: colar traz a logo copiada (posição e tamanho)
       if (dados.logo && dados.logo.id && this.logos.has(dados.logo.id)) {
@@ -313,7 +393,7 @@
     zerarColagens() { this._colagens = 0; }
 
     selecionarTudo() {
-      const ids = this.textos.map((t) => t.id);
+      const ids = [...this.imagens.map((m) => m.id), ...this.textos.map((t) => t.id)];
       if (this.logo.id && this.logos.get(this.logo.id)) ids.push("logo");
       this.selecionar(ids);
     }
@@ -322,12 +402,13 @@
       if (!this.sels.length) return;
       if (this.sels.includes("logo")) this.logo.id = null;
       this.textos = this.textos.filter((t) => !this.sels.includes(t.id));
+      this.imagens = this.imagens.filter((m) => !this.sels.includes(m.id));
       this.sel = null; this.sels = [];
       this.marcar(); this.desenhar(); this.aoSelecionar(null);
     }
 
     // caixa (em pixels) de um item ou do grupo selecionado
-    _caixaDe(id) { return id === "logo" ? this.logo._caixa : (this.textos.find((t) => t.id === id) || {})._caixa; }
+    _caixaDe(id) { return id === "logo" ? this.logo._caixa : (this.textos.find((t) => t.id === id) || this.imagens.find((m) => m.id === id) || {})._caixa; }
     _caixaGrupo(ids = this.sels) {
       const cs = ids.map((id) => this._caixaDe(id)).filter(Boolean);
       if (!cs.length) return null;
@@ -345,7 +426,7 @@
         if (!o) continue;
         if (id === "logo") { this.logo.x = clamp((o.x * W + dx) / W, -0.2, 1.2); this.logo.y = clamp((o.y * H + dy) / H, -0.2, 1.2); }
         else {
-          const t = this.textos.find((x) => x.id === id);
+          const t = this.textos.find((x) => x.id === id) || this.imagens.find((x) => x.id === id);
           if (t) { t.x = clamp((o.x * W + dx) / W, -0.5, 1.2); t.y = clamp((o.y * H + dy) / H, -0.5, 1.2); }
         }
       }
@@ -354,7 +435,7 @@
       const ini = {};
       for (const id of ids) {
         if (id === "logo") { const c = this.logo._caixa; if (c) ini.logo = { x: c.cx / this.out.w, y: c.cy / this.out.h }; }
-        else { const t = this.textos.find((x) => x.id === id); if (t) ini[id] = { x: t.x, y: t.y }; }
+        else { const t = this.textos.find((x) => x.id === id) || this.imagens.find((x) => x.id === id); if (t) ini[id] = { x: t.x, y: t.y }; }
       }
       return ini;
     }
@@ -465,6 +546,7 @@
       if (this._baseSuja || this.baseCache.width !== W || this.baseCache.height !== H) this._montarBase(W, H);
       ctx.clearRect(0, 0, W, H);
       ctx.drawImage(this.baseCache, 0, 0);
+      for (const m of this.imagens) this._desenharImagem(ctx, m, W, H);
       this._desenharLogo(ctx, W, H, comUI);
       for (const t of this.textos) this._desenharTexto(ctx, t, W, H, comUI);
       if (comUI) this._desenharUI(ctx, W, H);
@@ -501,6 +583,12 @@
           ctx.strokeRect(g.x0 - 8 * k, g.y0 - 8 * k, g.x1 - g.x0 + 16 * k, g.y1 - g.y0 + 16 * k);
         }
       }
+      // alça de redimensionar (uma imagem selecionada)
+      const alca = this._alca();
+      if (alca) {
+        ctx.fillStyle = "#FFFFFF"; ctx.strokeStyle = "#EA0356"; ctx.lineWidth = 2 * k; ctx.setLineDash([]);
+        ctx.beginPath(); ctx.arc(alca.x, alca.y, 7 * k, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      }
       // linhas de alinhamento (só durante o arraste)
       ctx.strokeStyle = "#FF0066"; ctx.lineWidth = 1.5 * k; ctx.setLineDash([]);
       for (const l of this._linhas) {
@@ -531,7 +619,7 @@
       const alvosV = [{ v: 0 }, { v: W / 2 }, { v: W }];   // linhas verticais (x)
       const alvosH = [{ v: 0 }, { v: H / 2 }, { v: H }];   // linhas horizontais (y)
       if (this.mostrarGuias) for (const g of this.guias) (g.eixo === "v" ? alvosV : alvosH).push({ v: g.pos * (g.eixo === "v" ? W : H), guia: true });
-      const outros = [...this.textos.map((t) => [t.id, t._caixa]), ["logo", this.logo.id ? this.logo._caixa : null]]
+      const outros = [...this.textos.map((t) => [t.id, t._caixa]), ...this.imagens.map((m) => [m.id, m._caixa]), ["logo", this.logo.id ? this.logo._caixa : null]]
         .filter(([id, c]) => c && !ignorar.includes(id)).map(([, c]) => c);
       for (const c of outros) {
         for (const v of [c.x0, (c.x0 + c.x1) / 2, c.x1]) alvosV.push({ v, c });
@@ -715,8 +803,21 @@
       }
       const cl = this.logo.id ? this.logo._caixa : null;
       if (cl && p.x >= cl.x0 && p.x <= cl.x1 && p.y >= cl.y0 && p.y <= cl.y1) return "logo";
+      for (let i = this.imagens.length - 1; i >= 0; i--) {
+        const c = this.imagens[i]._caixa;
+        if (c && p.x >= c.x0 && p.x <= c.x1 && p.y >= c.y0 && p.y <= c.y1) return this.imagens[i].id;
+      }
       return null;
     }
+    // canto inferior direito da imagem selecionada (só quando é a única seleção)
+    _alca() {
+      if (this.sels.length !== 1) return null;
+      const m = this.imagens.find((x) => x.id === this.sels[0]);
+      if (!m || !m._caixa) return null;
+      const k = this._px();
+      return { x: m._caixa.x1 + 4 * k, y: m._caixa.y1 + 4 * k, m };
+    }
+
     _guiaEm(p) {
       if (!this.mostrarGuias) return null;
       const tol = 6 * p.escala;
@@ -751,6 +852,12 @@
           return;
         }
         const somar = ev.shiftKey || ev.ctrlKey || ev.metaKey;
+        const alca = this._alca();
+        if (alca && Math.hypot(p.x - alca.x, p.y - alca.y) <= 14 * p.escala) {
+          arraste = { tipo: "tamanho", m: alca.m, x0: alca.m._caixa.x0, y0: alca.m._caixa.y0, moveu: false };
+          cv.setPointerCapture(ev.pointerId);
+          return;
+        }
         const alvo = this._acertar(p);
         const guia = !alvo ? this._guiaEm(p) : null;
         if (guia) {
@@ -780,6 +887,8 @@
         if (!this.src) return;
         const p = this._ponto(ev);
         if (!arraste) {
+          const alca = this.modo === "editar" && this._alca();
+          if (alca && Math.hypot(p.x - alca.x, p.y - alca.y) <= 14 * p.escala) { cv.style.cursor = "nwse-resize"; return; }
           if (this.modo === "editar") {
             const g = !this._acertar(p) && this._guiaEm(p);
             cv.style.cursor = this._acertar(p) ? "move" : g ? (g.eixo === "v" ? "col-resize" : "row-resize") : "default";
@@ -798,6 +907,13 @@
             dx += aj.dx; dy += aj.dy;
           } else this._linhas = [];
           this._deslocar(arraste.ids, arraste.ini, dx, dy);
+        } else if (arraste.tipo === "tamanho") {
+          // redimensiona mantendo a proporção, a partir do canto de cima à esquerda
+          const m = arraste.m;
+          const prop = m.proporcao || 1;
+          const w = Math.max(12 * p.escala, Math.max(p.x - arraste.x0, (p.y - arraste.y0) / prop));
+          m.largura = Math.min(3, w / W);
+          arraste.moveu = true;
         } else if (arraste.tipo === "guia") {
           const g = arraste.g;
           let v = g.eixo === "v" ? p.x : p.y;
@@ -805,7 +921,7 @@
           if (!ev.altKey) {
             const tol = 7 * p.escala, L = g.eixo === "v" ? W : H;
             const alvos = [L / 2];
-            for (const c of [...this.textos.map((t) => t._caixa), this.logo.id ? this.logo._caixa : null].filter(Boolean)) {
+            for (const c of [...this.textos.map((t) => t._caixa), ...this.imagens.map((m) => m._caixa), this.logo.id ? this.logo._caixa : null].filter(Boolean)) {
               alvos.push(...(g.eixo === "v" ? [c.x0, (c.x0 + c.x1) / 2, c.x1] : [c.y0, (c.y0 + c.y1) / 2, c.y1]));
             }
             const a = alvos.find((x) => Math.abs(x - v) <= tol);
@@ -818,7 +934,7 @@
           const r = this._laco;
           const x0 = Math.min(r.x0, r.x1), x1 = Math.max(r.x0, r.x1), y0 = Math.min(r.y0, r.y1), y1 = Math.max(r.y0, r.y1);
           const dentro = (c) => c && c.x1 >= x0 && c.x0 <= x1 && c.y1 >= y0 && c.y0 <= y1;
-          const ids = this.textos.filter((t) => dentro(t._caixa)).map((t) => t.id);
+          const ids = [...this.imagens.filter((m) => dentro(m._caixa)).map((m) => m.id), ...this.textos.filter((t) => dentro(t._caixa)).map((t) => t.id)];
           if (this.logo.id && dentro(this.logo._caixa)) ids.push("logo");
           this.sels = [...new Set([...(arraste.somar ? arraste.base : []), ...ids])];
           this.sel = this.sels[this.sels.length - 1] || null;
@@ -835,6 +951,7 @@
       const soltar = () => {
         if (!arraste) return;
         if (arraste.tipo === "itens" && arraste.moveu) { this.marcar(); this.aoSelecionar(this.sel); }
+        if (arraste.tipo === "tamanho" && arraste.moveu) { this.marcar(); this.aoSelecionar(this.sel); }
         if (arraste.tipo === "itens" && !arraste.moveu && arraste.isolar) this.selecionar(arraste.isolar);
         if (arraste.tipo === "guia") {
           // arrastou a guia para fora da arte: apaga
@@ -981,50 +1098,79 @@
     const faixaVermelho = 18;
     const img = ctx.getImageData(0, 0, W, H);
     const d = img.data;
-    for (let i = 0; i < d.length; i += 4) {
-      const r = d[i], g = d[i + 1], b = d[i + 2];
-      const [h, s, l] = rgbHsl(r, g, b);
+    const N = W * H;
+    // 1ª passada: quanto cada pixel deve ir para a cor da marca (peso) e para onde
+    const peso = new Float32Array(N);      // pink
+    const pesoRoxo = new Float32Array(N);  // roxo escuro -> grafite (só arte completa)
+    const pesoNeutro = new Float32Array(N);
+    const alvoIdx = new Uint8Array(N);
+    for (let p = 0, i = 0; p < N; p++, i += 4) {
+      const [h, s, l] = rgbHsl(d[i], d[i + 1], d[i + 2]);
       if (s < 0.14) {
-        // cinza quase neutro: tira o tom (sem mexer na luz)
-        if (s > 0.01 && l > 0.06 && l < 0.97) {
-          const w = k * 0.8 * (1 - suave(s, 0.06, 0.14));
-          const ns = s * (1 - w);
-          const [nr, ng, nb] = hslRgb(h, ns, l);
-          d[i] = nr; d[i + 1] = ng; d[i + 2] = nb;
-        }
+        if (s > 0.01 && l > 0.06 && l < 0.97) pesoNeutro[p] = k * 0.8 * (1 - suave(s, 0.06, 0.14));
         continue;
       }
-      // cor da marca mais próxima pelo matiz
-      let alvo = vivas[0], dh = difHue(h, alvo.hsl[0]);
-      for (const c of vivas) { const x = difHue(h, c.hsl[0]); if (Math.abs(x) < Math.abs(dh)) { alvo = c; dh = x; } }
+      let ai = 0, dh = difHue(h, vivas[0].hsl[0]);
+      for (let c = 1; c < vivas.length; c++) { const x = difHue(h, vivas[c].hsl[0]); if (Math.abs(x) < Math.abs(dh)) { ai = c; dh = x; } }
       const ad = Math.abs(dh);
-      // dh > 0: a cor está mais para o roxo; dh < 0: mais para o vermelho
       const faixa = dh > 0 ? faixaRoxo : faixaVermelho;
       if (ad > faixa) continue;
       const cheio = dh > 0 ? (cfg.ampla ? 0.7 : 0.55) : 0.35;
-      // peso: perto do matiz e bem saturado (pele e lábios, menos saturados, quase não mudam)
-      const satMin = dh > 0 ? 0.32 : 0.5;
+      // do lado do vermelho exige mais saturação, aos poucos (sem "degrau" em volta do tom oficial)
+      const satMin = 0.32 + 0.18 * suave(-dh, 0, 14);
       const w = k * (1 - suave(ad, faixa * cheio, faixa)) * suave(s, satMin, satMin + 0.3) * suave(l, 0.08, 0.2) * (1 - suave(l, 0.9, 0.98));
       if (w <= 0.001) continue;
-      // arte completa: roxo/lilás escuro vira grafite (o preto da marca), não um vinho
-      if (cfg.ampla && dh > 22 && l < 0.42) {
-        const wr = w * (1 - suave(l, 0.3, 0.42)) + w * 0.4 * suave(l, 0.3, 0.42);
-        const [nr, ng, nb] = hslRgb(h, s * (1 - Math.min(1, wr * 1.1)), l * (1 - 0.15 * wr));
-        d[i] = nr; d[i + 1] = ng; d[i + 2] = nb;
-        continue;
-      }
-      const nh = h + dh * w;
-      const ns = s + (alvo.hsl[1] - s) * w * 0.85;
-      let [nr, ng, nb] = hslRgb(nh, ns, l);
-      // áreas chapadas bem próximas da cor oficial: encaixa no hex exato
-      if (cfg.ampla) {
-        const [ar, ag, ab] = alvo.rgb;
-        const dist = Math.abs(nr - ar) + Math.abs(ng - ag) + Math.abs(nb - ab);
-        if (dist < 70) { const t = w * (1 - dist / 70); nr += (ar - nr) * t; ng += (ag - ng) * t; nb += (ab - nb) * t; }
-      }
+      alvoIdx[p] = ai;
+      if (cfg.ampla && dh > 22 && l < 0.42) pesoRoxo[p] = w * (1 - suave(l, 0.3, 0.42)) + w * 0.4 * suave(l, 0.3, 0.42);
+      else peso[p] = w;
+    }
+    // 2ª passada: suaviza os pesos (evita blocos e serrilhado onde o JPEG deixa o matiz "pulando")
+    const r = Math.max(2, Math.round(Math.min(W, H) / 220));
+    borrar(peso, W, H, r); borrar(pesoRoxo, W, H, r); borrar(pesoNeutro, W, H, r);
+    // 3ª passada: aplica
+    for (let p = 0, i = 0; p < N; p++, i += 4) {
+      const w = peso[p], wr = pesoRoxo[p], wn = pesoNeutro[p];
+      if (w < 0.002 && wr < 0.002 && wn < 0.002) continue;
+      let [h, s, l] = rgbHsl(d[i], d[i + 1], d[i + 2]);
+      if (wn > 0.002) s *= 1 - Math.min(1, wn);
+      if (wr > 0.002) { s *= 1 - Math.min(1, wr * 1.1); l *= 1 - 0.15 * wr; }
+      let nr, ng, nb;
+      if (w > 0.002 && s > 0.02) {
+        const alvo = vivas[alvoIdx[p]];
+        const dh = difHue(h, alvo.hsl[0]);
+        h += dh * Math.min(1, w);
+        s += (alvo.hsl[1] - s) * Math.min(1, w) * 0.85;
+        [nr, ng, nb] = hslRgb(h, s, l);
+        if (cfg.ampla) {
+          const [ar, ag, ab] = alvo.rgb;
+          const dist = Math.abs(nr - ar) + Math.abs(ng - ag) + Math.abs(nb - ab);
+          if (dist < 70) { const t = Math.min(1, w) * (1 - dist / 70); nr += (ar - nr) * t; ng += (ag - ng) * t; nb += (ab - nb) * t; }
+        }
+      } else [nr, ng, nb] = hslRgb(h, s, l);
       d[i] = nr; d[i + 1] = ng; d[i + 2] = nb;
     }
     ctx.putImageData(img, 0, 0);
+  }
+  // desfoque de caixa separável (duas vezes ≈ gaussiano) sobre um mapa de pesos
+  function borrar(m, W, H, r) {
+    let tem = false;
+    for (let i = 0; i < m.length; i += 97) if (m[i] > 0) { tem = true; break; }
+    if (!tem) { for (let i = 0; i < m.length; i++) if (m[i] > 0) { tem = true; break; } }
+    if (!tem) return;
+    const tmp = new Float32Array(m.length);
+    const passo = (src, dst, horizontal) => {
+      const L = horizontal ? W : H, M = horizontal ? H : W, tam = 2 * r + 1;
+      for (let a = 0; a < M; a++) {
+        let soma = 0;
+        const idx = (b) => horizontal ? a * W + b : b * W + a;
+        for (let b = -r; b <= r; b++) soma += src[idx(Math.min(L - 1, Math.max(0, b)))];
+        for (let b = 0; b < L; b++) {
+          dst[idx(b)] = soma / tam;
+          soma += src[idx(Math.min(L - 1, b + r + 1))] - src[idx(Math.max(0, b - r))];
+        }
+      }
+    };
+    for (let v = 0; v < 2; v++) { passo(m, tmp, true); passo(tmp, m, false); }
   }
 
   // brilho, contraste, saturação e temperatura direto nos pixels

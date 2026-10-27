@@ -5,7 +5,7 @@
    ===================================================================== */
 (function () {
   "use strict";
-  const { selecaoEmLote, caixaLote } = window.CriaDigi;
+  const { selecaoEmLote, caixaLote, prepararAsset } = window.CriaDigi;
   const { API, FORMATOS, esc, $, $$, toast, carregarImagem, reduzirParaBase64,
     carregarFontes, arquivoParaDataURL, montarCabecalho, lum, abrirLogin, definirDominios, uid, Favicon } = window.CriaDigi;
   const { Editor, POSICOES } = window.CriaDigiEditor;
@@ -65,6 +65,7 @@
     montarChat();
     montarOpcoes();
     montarFerramentas();
+    montarElementos();
     montarTemplates();
     montarConversas();
     ligarAtalhos();
@@ -1557,10 +1558,134 @@
 
   function aoSelecionar(sel) {
     const soLogo = ed.sels.length === 1 && ed.sels[0] === "logo";
+    const temTexto = ed.textosSelecionados().length > 0;
+    const temImagem = ed.imagensSelecionadas().length > 0;
     if (soLogo) mostrarFerr("logo");
+    else if (temImagem && !temTexto) mostrarFerr("elementos");
     else if (sel) mostrarFerr("texto");
+    // o bloco de alinhar/copiar/remover acompanha o painel aberto
+    const slot = temImagem && !temTexto ? $("#slot-alinhar-elementos") : $("#slot-alinhar-texto");
+    if ($("#alinhar-itens").parentElement !== slot) slot.appendChild($("#alinhar-itens"));
     sincronizarTexto();
+    sincronizarImagem();
     sincronizarFerramentas();
+  }
+
+  // ---------------------------------------------------------------- elementos (ícones e imagens)
+  S.assetsLocais = [];       // envios sem conta (só nesta sessão)
+  S.lib = "marca";
+  function sincronizarImagem() {
+    const sels = ed.imagensSelecionadas();
+    $("#props-imagem").hidden = !sels.length;
+    if (!sels.length) return;
+    const m = sels.find((x) => x.id === ed.sel) || sels[0];
+    $("#im-rotulo").textContent = sels.length > 1 ? `${sels.length} elementos selecionados` : (m.nome || "Elemento selecionado");
+    const tam = Math.round(m.largura * 1000) / 10;
+    $("#im-tamanho").value = tam; $("#im-tamanho").previousElementSibling.value = tam + "%";
+    const op = Math.round((m.opacidade == null ? 1 : m.opacidade) * 100);
+    $("#im-opacidade").value = op; $("#im-opacidade").previousElementSibling.value = op + "%";
+    marcarSwatch($("#im-cores"), m.cor || "");
+  }
+  function editarImagem(patch, registrar = true) {
+    const lista = ed.imagensSelecionadas();
+    if (!lista.length) return;
+    for (const m of lista) Object.assign(m, typeof patch === "function" ? patch(m) : patch);
+    ed.desenhar();
+    if (registrar) ed.marcar();
+    sincronizarImagem();
+  }
+
+  // biblioteca: "Da marca" (aprovados pelo admin + ícones da marca) e "Meus envios"
+  async function carregarBiblioteca(aba = S.lib) {
+    S.lib = aba;
+    $$("button", $("#lib-abas")).forEach((b) => b.classList.toggle("on", b.dataset.lib === aba));
+    const grade = $("#lib-grade"), aviso = $("#lib-aviso");
+    grade.innerHTML = `<p class="ajuda">Carregando…</p>`;
+    aviso.textContent = "";
+    let itens = [];
+    try {
+      if (aba === "marca") {
+        const daMarca = await API.assets({ escopo: "marca" });
+        const icones = S.arquivos.filter((a) => a.tipo === "icone" && a.ativo !== false)
+          .map((a) => ({ id: "arq-" + a.id, url: a.url, nome: a.descricao || a.nome, tipo: "icone", marca: true }));
+        itens = [...icones, ...daMarca];
+        if (!itens.length) aviso.textContent = "Ainda não há elementos da marca. O admin escolhe quais envios fazem parte da ID.";
+      } else {
+        const meus = S.conta ? await API.assets({ escopo: "meus" }) : [];
+        itens = [...S.assetsLocais, ...meus];
+        aviso.textContent = S.conta ? (itens.length ? "Clique para colocar na arte." : "Os ícones e imagens que você enviar ficam guardados aqui.")
+          : "Sem login, os envios ficam só nesta sessão. Entre na sua conta para guardar.";
+      }
+    } catch (e) { aviso.textContent = e.message; }
+    S.libItens = itens;
+    grade.innerHTML = itens.map((a) => `
+      <div class="lib-item" data-asset="${esc(a.id)}" title="${esc(a.nome || "")}" role="button" tabindex="0">
+        <img src="${esc(a.url)}" alt="${esc(a.nome || "")}" loading="lazy" crossorigin="anonymous">
+        ${aba === "meus" && !a.marca ? `<button type="button" class="lib-x" data-apagar-asset title="Apagar" aria-label="Apagar">×</button>` : ""}
+        ${aba === "meus" && a.marca ? `<span class="lib-selo">ID</span>` : ""}
+      </div>`).join("");
+  }
+
+  async function colocarAsset(a) {
+    if (!ed.temImagem) return;
+    try {
+      await ed.adicionarImagem(a.url, { nome: a.nome || "", assetId: a.id, tipo: a.tipo, largura: a.tipo === "icone" ? 0.14 : 0.4 });
+    } catch (e) { toast("Não consegui colocar esse elemento: " + e.message, "erro"); }
+  }
+
+  // envia arquivos: com conta, guarda na biblioteca; sem conta, só nesta sessão
+  async function enviarAssets(files, { colocar = true } = {}) {
+    const lista = [...files].filter((f) => f.type.startsWith("image/") || /\.svg$/i.test(f.name));
+    if (!lista.length) return toast("Envie PNG, SVG, JPG ou WebP.", "erro");
+    const zona = $("#envio-asset");
+    zona.classList.add("sobre");
+    let primeiro = true;
+    for (const f of lista) {
+      try {
+        const arq = await prepararAsset(f);
+        let a;
+        if (S.conta) a = await API.enviarAsset(arq);
+        else { a = { id: "local-" + uid(), url: URL.createObjectURL(arq.blob), nome: arq.nome, tipo: arq.tipo, local: true }; S.assetsLocais.unshift(a); }
+        if (colocar && primeiro) await colocarAsset(a);
+        primeiro = false;
+      } catch (e) { toast(e.message, "erro", 6000); }
+    }
+    zona.classList.remove("sobre");
+    carregarBiblioteca("meus");
+  }
+
+  function montarElementos() {
+    const zona = $("#envio-asset");
+    $("input", zona).addEventListener("change", (ev) => { enviarAssets(ev.target.files); ev.target.value = ""; });
+    ligarSoltar(zona, (files) => enviarAssets(files));
+    $("#lib-abas").addEventListener("click", (ev) => { const b = ev.target.closest("[data-lib]"); if (b) carregarBiblioteca(b.dataset.lib); });
+    $("#lib-grade").addEventListener("click", async (ev) => {
+      const it = ev.target.closest("[data-asset]");
+      if (!it) return;
+      const a = (S.libItens || []).find((x) => String(x.id) === it.dataset.asset);
+      if (!a) return;
+      if (ev.target.closest("[data-apagar-asset]")) {
+        if (!confirm(`Apagar "${a.nome || "este elemento"}" dos seus envios? As artes que já usam continuam iguais.`)) return;
+        try {
+          if (a.local) S.assetsLocais = S.assetsLocais.filter((x) => x !== a); else await API.apagarAssets([a]);
+          carregarBiblioteca("meus");
+        } catch (e) { toast(e.message, "erro"); }
+        return;
+      }
+      colocarAsset(a);
+    });
+    $("#lib-grade").addEventListener("keydown", (ev) => { if (ev.key === "Enter" && ev.target.matches("[data-asset]")) ev.target.click(); });
+    ligarDeslizador($("#im-tamanho"), (v) => editarImagem((m) => {
+      // mantém o centro ao mudar o tamanho
+      const W = ed.out.w, H = ed.out.h, cx = m.x * W + m.largura * W / 2, cy = m.y * H + m.largura * W * m.proporcao / 2;
+      const nl = v / 100;
+      return { largura: nl, x: (cx - nl * W / 2) / W, y: (cy - nl * W * m.proporcao / 2) / H };
+    }, false), (v) => v + "%");
+    ligarDeslizador($("#im-opacidade"), (v) => editarImagem({ opacidade: v / 100 }, false), (v) => v + "%");
+    swatches($("#im-cores"), { comNenhum: true });
+    $("#im-cores").addEventListener("click", (ev) => { const b = ev.target.closest(".amostra"); if (b) editarImagem({ cor: b.dataset.hex || null }); });
+    $$("[data-ordem]").forEach((b) => b.addEventListener("click", () => ed.ordenarImagem(b.dataset.ordem)));
+    $('.abas-ferr [data-ferr="elementos"]').addEventListener("click", () => carregarBiblioteca());
   }
 
   function sincronizarTexto() {
@@ -1576,13 +1701,15 @@
     $("#props-texto").hidden = !t;
     $("#alinhar-itens").hidden = !nItens || (nItens === 1 && ed.sels[0] === "logo");
     $("#alinhar-rotulo").textContent = nItens > 1 ? `Alinhar os ${nItens} itens entre si` : "Posicionar na arte";
-    $("#tx-remover").textContent = nItens > 1 ? `Remover ${nItens} itens` : "Remover texto";
+    $("#tx-remover").textContent = nItens > 1 ? `Remover ${nItens} itens` : ed.imagensSelecionadas().length ? "Remover elemento" : "Remover texto";
     if (!t) return;
     const multi = sels.length > 1;
     $("#tx-multi").hidden = !multi && nItens < 2;
+    const nImg = ed.imagensSelecionadas().length;
+    const extras = [ed.sels.includes("logo") ? "logo" : "", nImg ? `${nImg} elemento${nImg > 1 ? "s" : ""}` : ""].filter(Boolean).join(" + ");
     $("#tx-multi").textContent = multi
-      ? `${sels.length} textos selecionados${ed.sels.includes("logo") ? " + logo" : ""}. Fonte, cor, tamanho e alinhamento valem para todos.`
-      : "Texto + logo selecionados. Arraste para mover juntos.";
+      ? `${sels.length} textos selecionados${extras ? " + " + extras : ""}. Fonte, cor, tamanho e alinhamento valem para os textos.`
+      : `Texto + ${extras} selecionados. Arraste para mover juntos.`;
     $("#tx-texto-campo").hidden = multi;
     if (document.activeElement !== $("#tx-texto")) $("#tx-texto").value = t.texto;
     $("#tx-fonte").value = t.fonte;
@@ -1828,7 +1955,7 @@
     const mem = lerClip();
     if (!dados && mem && (!texto || texto === mem.texto)) dados = mem;   // copiado aqui, em outra aba/arte
     if (dados) { if (dados !== mem) gravarClip(dados); ed.colar(dados); return; }
-    if (arquivo) return toast("Para usar uma imagem colada, volte para os resultados e cole de novo: ela vira a imagem de partida.", "info", 6000);
+    if (arquivo) { mostrarFerr("elementos"); return enviarAssets([arquivo]); }
     if (texto) colarTextoSimples(texto);
   });
   $$("[data-clip]").forEach((b) => b.addEventListener("click", () => {

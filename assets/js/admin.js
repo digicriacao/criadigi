@@ -49,6 +49,7 @@
       logos: S.arquivos.filter((a) => a.tipo === "logo").length,
       referencias: S.arquivos.filter((a) => a.tipo === "referencia").length,
       icones: S.arquivos.filter((a) => a.tipo === "icone").length,
+      assets: S.assetsAdmin ? S.assetsAdmin.filter((a) => a.marca).length || "" : "",
       estilos: S.estilos.length,
       formatos: (S.formatos || []).filter((f) => f.ativo !== false).length,
       templates: S.templatesAdmin ? S.templatesAdmin.length : "",
@@ -636,6 +637,103 @@
           if (await salvarComAviso(() => API.usuarios("remover", { id: u.id }), "Conta removida.")) carregar();
         }
       });
+    },
+
+    // ---------------------------------------------------------------- assets enviados no editor
+    async assets(el) {
+      S.filtroAssets = S.filtroAssets || "";
+      el.innerHTML = topo("Assets",
+        "Todos os ícones e imagens que as pessoas enviaram no editor. Marque os que fazem parte da identidade: eles aparecem para todo mundo em Elementos › Da marca, e os marcados como ícone também passam a guiar a IA quando ela recria artes.")
+        + `<div class="filtros-assets">
+            <div class="segmentado segmentado-sm" id="filtro-assets">
+              <button type="button" data-f="" class="${!S.filtroAssets ? "on" : ""}">Todos</button>
+              <button type="button" data-f="marca" class="${S.filtroAssets === "marca" ? "on" : ""}">Na ID</button>
+              <button type="button" data-f="fora" class="${S.filtroAssets === "fora" ? "on" : ""}">Fora da ID</button>
+            </div>
+            <form class="busca-admin" id="f-busca-asset" style="margin:0;flex:1"><input type="search" name="q" placeholder="Buscar por e-mail ou nome" aria-label="Buscar assets"><button class="btn btn-ghost" type="submit">Buscar</button></form>
+          </div>
+          <section class="cartao-admin">
+            <h2>Enviar direto para a ID</h2>
+            <label class="envio" id="envio-asset-admin" style="margin-top:8px">
+              <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" multiple hidden>
+              <span><b>Arraste ícones ou imagens aqui</b>Entram já marcados como parte da ID.</span>
+            </label>
+          </section>
+          <div id="lista-assets"><p class="ajuda">Carregando…</p></div>`;
+      const carregar = async () => {
+        const q = $("#f-busca-asset").q.value;
+        $("#lista-assets").innerHTML = `<p class="ajuda">Carregando…</p>`;
+        try {
+          const lista = await API.assets({ escopo: "todos", busca: q, filtro: S.filtroAssets });
+          S.assetsAdmin = lista;
+          $("#lista-assets").innerHTML = lista.length ? `<div class="admin-criacoes admin-assets">${lista.map((a) => `
+            <div class="admin-criacao ${a.marca ? "na-id" : ""}" data-aid="${esc(a.id)}" data-lote-id="${esc(a.id)}">
+              ${caixaLote("Selecionar asset")}
+              ${a.marca ? `<span class="selo-id">Na ID</span>` : ""}
+              <a href="${esc(a.url)}" target="_blank" rel="noopener" class="asset-thumb"><img src="${esc(a.url)}" alt="" loading="lazy"></a>
+              <div class="info">
+                <b title="${esc(a.nome || "")}">${esc(a.nome || "Sem nome")}</b>
+                <span title="${esc(a.email || "")}">${esc(a.email || "admin")}</span>
+                <span>${new Date(a.criado_em).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}${a.largura ? ` · ${a.largura}×${a.altura}` : ""}</span>
+                <select data-campo="tipo" aria-label="Tipo">
+                  <option value="icone" ${a.tipo === "icone" ? "selected" : ""}>Ícone</option>
+                  <option value="imagem" ${a.tipo !== "icone" ? "selected" : ""}>Imagem</option>
+                </select>
+                <label class="interruptor"><input type="checkbox" data-campo="marca" ${a.marca ? "checked" : ""}> Faz parte da ID</label>
+              </div>
+            </div>`).join("")}</div>` : `<p class="ajuda">Nenhum asset ${S.filtroAssets === "marca" ? "na ID" : S.filtroAssets === "fora" ? "fora da ID" : "enviado ainda"}.</p>`;
+          if (lista.length) selecaoEmLote($("#lista-assets"), {
+            nome: ["asset", "assets"],
+            acoes: [
+              { rotulo: "Integrar à ID", classe: "btn-primario", fn: async (ids) => { await API.salvarAssets(ids, { marca: true }); toast(`${ids.length} integrado${ids.length > 1 ? "s" : ""} à ID.`, "ok"); carregar(); } },
+              { rotulo: "Tirar da ID", fn: async (ids) => { await API.salvarAssets(ids, { marca: false }); toast("Fora da ID.", "ok"); carregar(); } },
+            ],
+            aoApagar: async (ids) => { await API.apagarAssets((S.assetsAdmin || []).filter((x) => ids.includes(String(x.id)))); },
+          });
+          contar();
+        } catch (e) {
+          $("#lista-assets").innerHTML = `<div class="erro-lote">${esc(e.message)}</div>`;
+        }
+      };
+      $("#filtro-assets").addEventListener("click", (ev) => {
+        const b = ev.target.closest("[data-f]");
+        if (!b) return;
+        S.filtroAssets = b.dataset.f;
+        $$("button", $("#filtro-assets")).forEach((x) => x.classList.toggle("on", x === b));
+        carregar();
+      });
+      $("#f-busca-asset").addEventListener("submit", (ev) => { ev.preventDefault(); carregar(); });
+      $("#lista-assets").addEventListener("change", async (ev) => {
+        const campo = ev.target.dataset.campo;
+        const card = ev.target.closest("[data-aid]");
+        if (!campo || !card) return;
+        const valor = ev.target.type === "checkbox" ? ev.target.checked : ev.target.value;
+        if (await salvarComAviso(() => API.salvarAssets([card.dataset.aid], { [campo]: valor }), campo === "marca" ? (valor ? "Integrado à ID." : "Fora da ID.") : "Salvo.")) {
+          const a = (S.assetsAdmin || []).find((x) => String(x.id) === card.dataset.aid);
+          if (a) a[campo] = valor;
+          if (campo === "marca") { card.classList.toggle("na-id", valor); if (S.filtroAssets) carregar(); else card.querySelector(".selo-id")?.remove(), valor && card.insertAdjacentHTML("afterbegin", `<span class="selo-id">Na ID</span>`); }
+        }
+      });
+      // envio direto do admin: já entra na ID
+      const zona = $("#envio-asset-admin");
+      const enviar = async (files) => {
+        let ok = 0;
+        for (const f of [...files]) {
+          try {
+            const arq = await window.CriaDigi.prepararAsset(f);
+            const a = await API.enviarAsset(arq);
+            await API.salvarAssets([a.id], { marca: true });
+            ok++;
+          } catch (e) { toast(`${f.name}: ${e.message}`, "erro", 6000); }
+        }
+        if (ok) toast(`${ok} enviado${ok > 1 ? "s" : ""} para a ID.`, "ok");
+        carregar();
+      };
+      $("input", zona).addEventListener("change", (ev) => { enviar(ev.target.files); ev.target.value = ""; });
+      zona.addEventListener("dragover", (ev) => { ev.preventDefault(); zona.classList.add("sobre"); });
+      zona.addEventListener("dragleave", () => zona.classList.remove("sobre"));
+      zona.addEventListener("drop", (ev) => { ev.preventDefault(); zona.classList.remove("sobre"); enviar(ev.dataTransfer.files); });
+      carregar();
     },
 
     // ---------------------------------------------------------------- criações de todo mundo
