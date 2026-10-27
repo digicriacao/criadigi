@@ -544,7 +544,7 @@
       return;
     }
     const formato = formatoDe(it.formato);
-    const item = { ...it, formato, copy: it.textos && it.textos.textos ? it.textos.textos : null, posicao: it.textos ? it.textos.posicao : null, layout: !!(it.textos && it.textos.layout), blocos: it.textos && it.textos.blocos ? it.textos.blocos : null };
+    const item = { ...it, formato, copy: it.textos && it.textos.textos ? it.textos.textos : null, posicao: it.textos ? it.textos.posicao : null, layout: !!(it.textos && it.textos.layout), blocos: it.textos && it.textos.blocos ? it.textos.blocos : null, elementos: it.textos ? it.textos.elementos || null : null, limpa: it.textos ? it.textos.limpa_url || null : null };
     if (b && b.dataset.acao === "ajustar") {
       if (!S.resultados.some((r) => r.id === item.id)) S.resultados.push(item);
       definirFoco(item); $("#prompt").focus(); return;
@@ -567,6 +567,7 @@
       formato: resumoFormato(it.formato), copy: it.copy || null, posicao: it.posicao || null,
       tplCampo: it.tplCampo || undefined, layout: it.layout || undefined,
       blocos: it.blocos || undefined, pai: it.pai ? String(it.pai) : undefined, tipoVersao: it.tipoVersao || undefined,
+      elementos: it.elementos && it.elementos.length ? it.elementos : undefined, limpa: guardavel(it.limpa) ? it.limpa : undefined,
     };
   }
 
@@ -743,6 +744,8 @@
         if (!it.camadas) await comporArte(it);
         if (it.camadas) {
           ed.textos = JSON.parse(JSON.stringify(it.camadas.textos));
+          ed.imagens = JSON.parse(JSON.stringify(it.camadas.imagens || []));
+          await ed.precarregar();
           ed.degrade = { ...it.camadas.degrade };
           if (!semLogo && it.camadas.logo) ed.logo = { ...it.camadas.logo };
           ed.sujarBase();
@@ -836,6 +839,7 @@
         ...g, formato: formatoDe(g.formato), dono: { id: g.user_id, email: g.email || "" },
         copy: g.textos && g.textos.textos ? g.textos.textos : null, posicao: g.textos ? g.textos.posicao : null,
         layout: !!(g.textos && g.textos.layout), blocos: g.textos && g.textos.blocos ? g.textos.blocos : null,
+        elementos: g.textos ? g.textos.elementos || null : null, limpa: g.textos ? g.textos.limpa_url || null : null,
       };
       await abrirNoEditor(item);
       if (item.dono.id !== S.sessao.id) toast(`Você está editando a arte de ${item.dono.email}. Ao salvar, a versão editada vai para as criações dessa pessoa.`, "info", 8000);
@@ -850,6 +854,7 @@
     return {
       ...g, formato: formatoDe(g.formato), copy: g.textos && g.textos.textos ? g.textos.textos : null, posicao: g.textos ? g.textos.posicao : null,
       layout: !!(g.textos && g.textos.layout), blocos: g.textos && g.textos.blocos ? g.textos.blocos : null,
+      elementos: g.textos ? g.textos.elementos || null : null, limpa: g.textos ? g.textos.limpa_url || null : null,
     };
   }
   function cadeiaDe(it) {
@@ -1123,6 +1128,181 @@
     });
   }
 
+  // ---- arte completa: cards, ícones e formas viram camadas de imagem
+  // Cada elemento é recortado da arte sem textos (it.limpa). O fundo transparente
+  // sai da diferença com o fundo sem elementos (it.url): o que mudou é o elemento.
+  async function recortarElementos(it) {
+    if (!it.elementos || !it.elementos.length || !it.limpa) return [];
+    const [imL, imF] = await Promise.all([carregarImagem(it.limpa), carregarImagem(it.url)]);
+    const W = imL.naturalWidth, H = imL.naturalHeight;
+    const cvL = document.createElement("canvas"); cvL.width = W; cvL.height = H;
+    const cvF = document.createElement("canvas"); cvF.width = W; cvF.height = H;
+    const xL = cvL.getContext("2d", { willReadFrequently: true }); xL.drawImage(imL, 0, 0);
+    const xF = cvF.getContext("2d", { willReadFrequently: true }); xF.drawImage(imF, 0, 0, W, H);
+    const pad = Math.round(Math.min(W, H) * 0.008);
+    const lista = it.elementos.map((e) => {
+      const [y0, x0, y1, x1] = e.caixa;
+      const bx = Math.max(0, Math.floor(x0 / 1000 * W) - pad), by = Math.max(0, Math.floor(y0 / 1000 * H) - pad);
+      const bw = Math.min(W - bx, Math.ceil((x1 - x0) / 1000 * W) + pad * 2), bh = Math.min(H - by, Math.ceil((y1 - y0) / 1000 * H) + pad * 2);
+      return { e, bx, by, bw, bh, area: bw * bh };
+    }).filter((r) => r.bw > 6 && r.bh > 6).sort((a, b) => b.area - a.area);   // maiores (cards) primeiro, por baixo
+    const T = 30;
+    const dentroDe = (f, pai) => {
+      const ix0 = Math.max(pai.bx, f.bx), iy0 = Math.max(pai.by, f.by), ix1 = Math.min(pai.bx + pai.bw, f.bx + f.bw), iy1 = Math.min(pai.by + pai.bh, f.by + f.bh);
+      return ix1 > ix0 && iy1 > iy0 && (ix1 - ix0) * (iy1 - iy0) >= f.area * 0.85;
+    };
+    // cor "do meio" de uma lista de pixels (pela luminância): resiste a contornos e sombras
+    const mediana = (amostras) => {
+      if (!amostras.length) return null;
+      amostras.sort((p, q) => (p[0] * 3 + p[1] * 6 + p[2]) - (q[0] * 3 + q[1] * 6 + q[2]));
+      return amostras[amostras.length >> 1];
+    };
+    for (const r of lista) {
+      const A = xL.getImageData(r.bx, r.by, r.bw, r.bh), B = xF.getImageData(r.bx, r.by, r.bw, r.bh);
+      const n = r.bw * r.bh, a = A.data, b = B.data;
+      // dentro de um card: compara com a cor do card em volta (não com o fundo da arte)
+      r.pai = lista.find((q) => q !== r && q.ok && q.area > r.area && dentroDe(r, q)) || null;
+      let ref = null;
+      if (r.pai) {
+        const borda = [];
+        for (let x = 0; x < r.bw; x++) for (const y of [0, r.bh - 1]) { const i = (y * r.bw + x) * 4; borda.push([a[i], a[i + 1], a[i + 2]]); }
+        for (let y = 0; y < r.bh; y++) for (const x of [0, r.bw - 1]) { const i = (y * r.bw + x) * 4; borda.push([a[i], a[i + 1], a[i + 2]]); }
+        ref = mediana(borda);
+      }
+      // diferença para o que estaria ali sem o elemento (suavizada 3×3 contra ruído do JPEG)
+      const dif = new Float32Array(n);
+      for (let p = 0, i = 0; p < n; p++, i += 4) {
+        const br = ref ? ref[0] : b[i], bg = ref ? ref[1] : b[i + 1], bb = ref ? ref[2] : b[i + 2];
+        dif[p] = Math.max(Math.abs(a[i] - br), Math.abs(a[i + 1] - bg), Math.abs(a[i + 2] - bb));
+      }
+      const suav = new Float32Array(n);
+      for (let y = 0; y < r.bh; y++) for (let x = 0; x < r.bw; x++) {
+        let s = 0, c = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx, yy = y + dy;
+          if (xx < 0 || yy < 0 || xx >= r.bw || yy >= r.bh) continue;
+          s += dif[yy * r.bw + xx]; c++;
+        }
+        suav[y * r.bw + x] = s / c;
+      }
+      // fundo = o que dá para alcançar a partir da borda sem atravessar diferença grande
+      const fundo = new Uint8Array(n);
+      const fila = new Int32Array(n); let ini = 0, fim = 0;
+      const semear = (p) => { if (!fundo[p] && suav[p] < T) { fundo[p] = 1; fila[fim++] = p; } };
+      for (let x = 0; x < r.bw; x++) { semear(x); semear((r.bh - 1) * r.bw + x); }
+      for (let y = 0; y < r.bh; y++) { semear(y * r.bw); semear(y * r.bw + r.bw - 1); }
+      // a margem de fora da caixa detectada é fundo com certeza
+      for (let y = 0; y < r.bh; y++) for (let x = 0; x < r.bw; x++) {
+        if (x < pad || y < pad || x >= r.bw - pad || y >= r.bh - pad) semear(y * r.bw + x);
+      }
+      while (ini < fim) {
+        const p = fila[ini++], x = p % r.bw, y = (p / r.bw) | 0;
+        if (x > 0) semear(p - 1); if (x < r.bw - 1) semear(p + 1);
+        if (y > 0) semear(p - r.bw); if (y < r.bh - 1) semear(p + r.bw);
+      }
+      // tira sobras soltas (pedaços de borda do card, ruído): fica só o que é grande
+      {
+        const rot = new Int32Array(n); let nRot = 0; const tamanhos = [0];
+        const pilha = new Int32Array(n);
+        for (let p0 = 0; p0 < n; p0++) {
+          if (fundo[p0] || rot[p0]) continue;
+          nRot++; let t = 0, topo = 0; pilha[topo++] = p0; rot[p0] = nRot;
+          while (topo) {
+            const p = pilha[--topo]; t++;
+            const x = p % r.bw, y = (p / r.bw) | 0;
+            const viz = [x > 0 ? p - 1 : -1, x < r.bw - 1 ? p + 1 : -1, y > 0 ? p - r.bw : -1, y < r.bh - 1 ? p + r.bw : -1];
+            for (const q of viz) if (q >= 0 && !fundo[q] && !rot[q]) { rot[q] = nRot; pilha[topo++] = q; }
+          }
+          tamanhos.push(t);
+        }
+        const maior = Math.max(0, ...tamanhos);
+        for (let p = 0; p < n; p++) if (rot[p] && tamanhos[rot[p]] < maior * 0.04) fundo[p] = 1;
+      }
+      // expande um pouco o recorte: recupera contornos finos e o antisserrilhado da borda
+      {
+        const forma = ["card", "faixa", "botao", "selo"].includes(r.e.tipo);
+        const raio = forma ? Math.max(2, Math.round(Math.min(W, H) * 0.0028)) : 1;
+        const el = new Uint8Array(n);
+        for (let p = 0; p < n; p++) el[p] = fundo[p] ? 0 : 1;
+        const tmp = new Uint8Array(n);
+        for (let y = 0; y < r.bh; y++) for (let x = 0; x < r.bw; x++) {
+          let v = 0;
+          for (let d = -raio; d <= raio && !v; d++) { const xx = x + d; if (xx >= 0 && xx < r.bw && el[y * r.bw + xx]) v = 1; }
+          tmp[y * r.bw + x] = v;
+        }
+        for (let y = 0; y < r.bh; y++) for (let x = 0; x < r.bw; x++) {
+          let v = 0;
+          for (let d = -raio; d <= raio && !v; d++) { const yy = y + d; if (yy >= 0 && yy < r.bh && tmp[yy * r.bw + x]) v = 1; }
+          if (v) fundo[y * r.bw + x] = 0;
+        }
+      }
+      let cheio = 0;
+      for (let p = 0; p < n; p++) if (!fundo[p]) cheio++;
+      r.ok = cheio > n * 0.05;          // quase nada mudou: o fundo não apagou o elemento; deixa na base
+      if (!r.ok) continue;
+      // alfa com borda suave (1 px)
+      const alfa = new Uint8ClampedArray(n);
+      for (let y = 0; y < r.bh; y++) for (let x = 0; x < r.bw; x++) {
+        let s = 0, c = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx, yy = y + dy;
+          if (xx < 0 || yy < 0 || xx >= r.bw || yy >= r.bh) continue;
+          s += fundo[yy * r.bw + xx] ? 0 : 1; c++;
+        }
+        alfa[y * r.bw + x] = Math.round(255 * s / c);
+      }
+      for (let p = 0, i = 3; p < n; p++, i += 4) a[i] = alfa[p];
+      r.dados = A; r.alfa = alfa;
+    }
+    // um ícone dentro de um card: tira o ícone do recorte do card (preenche com a cor do card em volta)
+    const validos = lista.filter((r) => r.ok);
+    for (const f of validos) {
+      const pai = f.pai && f.pai.ok ? f.pai : null;
+      if (!pai) continue;
+      const pd = pai.dados.data;
+      // cor do card: mediana do anel em volta do filho, só onde o card é opaco
+      const amostras = [];
+      const anel = Math.max(4, Math.round(Math.min(W, H) * 0.006));
+      for (let y = f.by - anel; y < f.by + f.bh + anel; y++) for (let x = f.bx - anel; x < f.bx + f.bw + anel; x++) {
+        if (x >= f.bx && x < f.bx + f.bw && y >= f.by && y < f.by + f.bh) continue;
+        const px = x - pai.bx, py = y - pai.by;
+        if (px < 0 || py < 0 || px >= pai.bw || py >= pai.bh) continue;
+        const i = (py * pai.bw + px) * 4;
+        if (pd[i + 3] < 250) continue;
+        amostras.push([pd[i], pd[i + 1], pd[i + 2]]);
+      }
+      const cor = mediana(amostras);
+      if (!cor) continue;
+      const [sr, sg, sb] = cor;
+      for (let y = 0; y < f.bh; y++) for (let x = 0; x < f.bw; x++) {
+        if (f.alfa[y * f.bw + x] < 20) continue;
+        // dilata 2 px para não sobrar contorno
+        for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+          const px = f.bx + x + dx - pai.bx, py = f.by + y + dy - pai.by;
+          if (px < 0 || py < 0 || px >= pai.bw || py >= pai.bh) continue;
+          const i = (py * pai.bw + px) * 4;
+          if (pd[i + 3] < 200) continue;
+          pd[i] = sr; pd[i + 1] = sg; pd[i + 2] = sb;
+        }
+      }
+    }
+    const camadas = [];
+    for (const r of validos) {
+      const c = document.createElement("canvas"); c.width = r.bw; c.height = r.bh;
+      const cx = c.getContext("2d");
+      cx.putImageData(r.dados, 0, 0);
+      // mesma correção de cor da base, para o elemento não destoar do fundo
+      const cm = corDe(it);
+      if (cm.forca > 0 && ed && ed.paleta && ed.paleta.length) window.CriaDigiEditor.corrigirPaleta(cx, r.bw, r.bh, ed.paleta, cm);
+      const blob = await new Promise((res) => c.toBlob(res, "image/png"));
+      camadas.push({
+        id: uid(), src: URL.createObjectURL(blob), nome: r.e.descricao || r.e.tipo, tipo: r.e.tipo === "icone" ? "icone" : "imagem", elemento: r.e.tipo,
+        x: r.bx / W, y: r.by / H, largura: r.bw / W, proporcao: r.bh / r.bw, opacidade: 1, cor: null,
+      });
+    }
+    return camadas;
+  }
+
   // logo da arte completa: o canto com menos texto (e a versão que aparece melhor no fundo)
   function logoLivre(img, W, H, blocos) {
     const base = logoParaFundo(img, W, H);
@@ -1157,6 +1337,8 @@
     await e.carregar(it.url, it.formato || null);
     e.logo = { ...e.logo, id: null };
     e.textos = JSON.parse(JSON.stringify(it.camadas ? it.camadas.textos : []));
+    e.imagens = JSON.parse(JSON.stringify(it.camadas ? it.camadas.imagens || [] : []));
+    await e.precarregar();
     const blob = await e.exportar("image/jpeg", 0.92);
     return URL.createObjectURL(blob);
   }
@@ -1173,6 +1355,8 @@
       it.original = it.url;
       it.url = r.imagem.url;
       it.blocos = r.blocos;
+      it.elementos = Array.isArray(r.elementos) ? r.elementos : [];
+      it.limpa = r.limpa ? r.limpa.url : null;
       it.camadas = null;
       // a conversa guardada passa a apontar para a versão com textos editáveis
       for (const m of S.msgs) for (const x of m.itens || []) if (String(x.id) === idAntigo) Object.assign(x, paraGuardar(it));
@@ -1235,13 +1419,16 @@
       it.camadas = soLogo
         ? { textos: it.blocos ? camadasDeBlocos(it.blocos, img, W, H) : [], degrade: { cor: "#232323", forca: 0, lado: "baixo" } }
         : calcularCamadas(it.copy, it.posicao, img, W, H);
-      it.camadas.logo = soLogo ? logoLivre(img, W, H, it.blocos) : logoParaFundo(img, W, H);
+      it.camadas.imagens = it.elementos && it.elementos.length ? await recortarElementos(it).catch((e) => { console.warn("Elementos não recortados:", e); return []; }) : [];
+      it.camadas.logo = soLogo ? logoLivre(img, W, H, [...(it.blocos || []), ...(it.elementos || [])]) : logoParaFundo(img, W, H);
       const e = new Editor(document.createElement("canvas"));
       LOGOS.forEach((im, id) => e.registrarLogo(id, im));
       await e.carregar(it.url, it.formato || null);
       e.paleta = ed.paleta; e.corMarca = corDe(it);
       e.logo = { ...it.camadas.logo };
       e.textos = JSON.parse(JSON.stringify(it.camadas.textos));
+      e.imagens = JSON.parse(JSON.stringify(it.camadas.imagens || []));
+      await e.precarregar();
       e.degrade = { ...it.camadas.degrade };
       const blob = await e.exportar("image/jpeg", 0.9);
       if (it.preview) URL.revokeObjectURL(it.preview);

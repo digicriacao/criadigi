@@ -301,6 +301,15 @@
       return m;
     }
 
+    // garante que todas as camadas de imagem estejam carregadas (antes de exportar fora da tela)
+    async precarregar() {
+      await Promise.all(this.imagens.map(async (m) => {
+        const c = this.cacheImgs.get(m.src);
+        if (c && c.pronto) return;
+        try { const img = await window.CriaDigi.carregarImagem(m.src); this.cacheImgs.set(m.src, { img, pronto: true }); } catch (_) { /* segue sem ela */ }
+      }));
+    }
+
     // ordem das camadas de imagem: "frente" | "tras"
     ordenarImagem(direcao) {
       const sel = this.imagensSelecionadas();
@@ -1200,5 +1209,5 @@
     ctx.putImageData(img, 0, 0);
   }
 
-  window.CriaDigiEditor = { Editor, POSICOES };
+  window.CriaDigiEditor = { Editor, POSICOES, corrigirPaleta };
 })();

@@ -601,8 +601,24 @@
       if (DEMO) {
         if (params.modo === "separar") {
           await espera(1200);
+          // demonstração: desenha um card, um ícone e um coração na "arte sem texto"; o fundo é a imagem como veio
+          const fundoUrl = "data:" + (params.imagem.mime || "image/jpeg") + ";base64," + params.imagem.data;
+          const im = await carregarImagem(fundoUrl);
+          const c = document.createElement("canvas"); c.width = im.naturalWidth; c.height = im.naturalHeight;
+          const x = c.getContext("2d"); x.drawImage(im, 0, 0);
+          const W = c.width, H = c.height, R = (a, b, cc, dd, rr) => { x.beginPath(); x.roundRect(a, b, cc, dd, rr); };
+          x.fillStyle = "#FFFFFF"; x.strokeStyle = "#EA0356"; x.lineWidth = W * 0.006;
+          R(W * 0.52, H * 0.43, W * 0.42, H * 0.12, W * 0.03); x.fill(); x.stroke();
+          x.fillStyle = "#EA0356"; x.beginPath(); x.arc(W * 0.58, H * 0.49, W * 0.04, 0, Math.PI * 2); x.fill();
+          x.fillStyle = "#FFFFFF"; x.fillRect(W * 0.562, H * 0.475, W * 0.036, H * 0.03);
+          x.fillStyle = "#EA0356"; x.beginPath(); x.arc(W * 0.12, H * 0.86, W * 0.035, 0, Math.PI * 2); x.fill();
           return {
-            imagem: { id: uid(), url: "data:" + (params.imagem.mime || "image/jpeg") + ";base64," + params.imagem.data }, salvo: false,
+            imagem: { id: uid(), url: fundoUrl }, limpa: { url: c.toDataURL("image/png") }, salvo: false,
+            elementos: [
+              { tipo: "card", caixa: [425, 515, 555, 945], descricao: "card branco com borda pink" },
+              { tipo: "icone", caixa: [448, 538, 532, 622], descricao: "ícone em círculo pink" },
+              { tipo: "forma", caixa: [823, 83, 897, 157], descricao: "círculo pink decorativo" },
+            ],
             blocos: [
               { texto: "FIM DE ANO\nNA DIGI", caixa: [90, 520, 300, 940], papel: "titulo", cor: "#EA0356", negrito: true, alinhar: "left", linhas: 2, maiusculas: true },
               { texto: "Confira como será nosso funcionamento\nno Natal e no Ano Novo:", caixa: [320, 520, 380, 940], papel: "texto", cor: "#232323", negrito: false, alinhar: "left", linhas: 2, maiusculas: false },
