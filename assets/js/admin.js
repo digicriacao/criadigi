@@ -994,7 +994,7 @@
     });
   }
 
-  const ED = { t: null, imgs: null, sel: null, sujo: false, novo: false, teste: null, caixas: {} };
+  const ED = { t: null, imgs: null, sel: null, sujo: false, novo: false, teste: null, caixas: {}, hist: [], futuro: [], linhas: [] };
   const pct = (v) => Math.round(v * 1000) / 10;
 
   function fontesMarca() {
@@ -1010,6 +1010,7 @@
 
   async function abrirEditorTemplate(t, novo) {
     ED.t = t; ED.novo = novo; ED.sujo = novo; ED.sel = null; ED.teste = null;
+    ED.hist = [JSON.stringify(t.campos || [])]; ED.futuro = []; ED.linhas = [];
     const el = $("#admin-conteudo");
     el.innerHTML = `
       <div class="secao-topo">
@@ -1069,14 +1070,39 @@
     const s = $("#tpl-status");
     if (s) s.textContent = ED.sujo ? (ED.novo ? "Ainda não salvo" : "Alterações não salvas") : "Tudo salvo";
   }
-  function mudou() { ED.sujo = true; status(); }
+  // desfazer/refazer dos campos do template
+  function marcarEd() {
+    const s = JSON.stringify(ED.t.campos || []);
+    if (ED.hist[ED.hist.length - 1] === s) return;
+    ED.hist.push(s); if (ED.hist.length > 60) ED.hist.shift();
+    ED.futuro = [];
+  }
+  function mudou() { ED.sujo = true; status(); marcarEd(); }
+  function voltarEd(desfazer) {
+    if (desfazer) { if (ED.hist.length < 2) return; ED.futuro.push(ED.hist.pop()); }
+    else { if (!ED.futuro.length) return; ED.hist.push(ED.futuro.pop()); }
+    ED.t.campos = JSON.parse(ED.hist[ED.hist.length - 1]);
+    if (!ED.t.campos.some((c) => c.id === ED.sel)) ED.sel = null;
+    ED.sujo = true; status(); listaCampos(); propsCampo(); desenharEd();
+  }
 
   function desenharEd() {
     const cv = $("#tpl-admin-tela");
     if (!cv || !ED.imgs) return;
     const estado = { textos: {}, fotos: {} };
     if (ED.teste) (ED.t.campos || []).filter((c) => c.tipo === "foto").forEach((c) => { estado.fotos[c.id] = { img: ED.teste, zoom: 1, dx: 0, dy: 0 }; });
-    ED.caixas = window.CriaDigiModelo.desenhar(cv.getContext("2d"), ED.t, ED.imgs, estado, { vagas: true, caixas: true, sel: ED.sel, alca: true });
+    const ctx = cv.getContext("2d");
+    ED.caixas = window.CriaDigiModelo.desenhar(ctx, ED.t, ED.imgs, estado, { vagas: true, caixas: true, sel: ED.sel, alca: true });
+    if (ED.linhas.length) {
+      const r = cv.getBoundingClientRect(), k = r.width ? cv.width / r.width : 1;
+      ctx.save(); ctx.strokeStyle = "#FF0066"; ctx.lineWidth = 1.5 * k;
+      for (const l of ED.linhas) {
+        ctx.beginPath();
+        if (l.eixo === "v") { ctx.moveTo(l.pos, 0); ctx.lineTo(l.pos, cv.height); } else { ctx.moveTo(0, l.pos); ctx.lineTo(cv.width, l.pos); }
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
   }
 
   function listaCampos() {
@@ -1106,7 +1132,7 @@
           <label class="campo"><span class="rotulo">Texto padrão</span><textarea data-p="padrao" rows="2">${esc(c.padrao)}</textarea></label>
           <div class="duas-col" style="margin:0">
             <label class="campo"><span class="rotulo">Fonte</span><select data-p="fonte">${fontesMarca().map((f) => `<option ${f === c.fonte ? "selected" : ""}>${esc(f)}</option>`).join("")}</select></label>
-            <label class="campo"><span class="rotulo">Peso</span><select data-p="peso">${[[400, "Regular"], [500, "Médio"], [600, "Semibold"], [700, "Bold"], [800, "Extra bold"], [900, "Black"]].map(([v, n]) => `<option value="${v}" ${Number(c.peso) === v ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+            <label class="campo"><span class="rotulo">Peso</span><select data-p="peso">${[[300, "Light"], [400, "Regular"], [500, "Médio"], [600, "Semibold"], [700, "Bold"], [800, "Extra bold"], [900, "Black"]].map(([v, n]) => `<option value="${v}" ${Number(c.peso) === v ? "selected" : ""}>${n}</option>`).join("")}</select></label>
           </div>
           <label class="deslizador">Tamanho da letra <output>${Number(c.tamanho).toFixed(1)}</output><input type="range" data-p="tamanho" min="1" max="20" step="0.1" value="${c.tamanho}"></label>
           <div class="duas-col" style="margin:0">
@@ -1114,12 +1140,20 @@
             <label class="campo checar"><input type="checkbox" data-p="caixa_alta" ${c.caixa_alta ? "checked" : ""}> Caixa alta</label>
           </div>
           <p class="ajuda ajuda-mini">Se o usuário escrever demais, a letra diminui sozinha para caber.</p>
+          <label class="deslizador">Espaçamento entre linhas <output>${(Number(c.entrelinha) || 1.15).toFixed(2)}</output><input type="range" data-p="entrelinha" min="0.7" max="2.2" step="0.01" value="${Number(c.entrelinha) || 1.15}"></label>
+          <label class="deslizador">Espaçamento entre letras <output>${Math.round((Number(c.espacamento) || 0) * 100)}%</output><input type="range" data-p="espacamento" min="-0.08" max="0.4" step="0.005" value="${Number(c.espacamento) || 0}"></label>
+          <label class="deslizador">Opacidade <output>${Math.round((c.opacidade == null ? 1 : c.opacidade) * 100)}%</output><input type="range" data-p="opacidade" min="5" max="100" value="${Math.round((c.opacidade == null ? 1 : c.opacidade) * 100)}"></label>
           <span class="rotulo">Cor</span>${swatchesAdmin(c.cor, "data-cor")}
+          <span class="rotulo">Fundo do texto</span>
+          <div class="paleta"><button type="button" class="amostra nenhuma ${!c.fundo ? "on" : ""}" data-fundo="" title="Sem fundo" aria-label="Sem fundo"></button>${S.cores.map((x) => `<button type="button" class="amostra ${String(c.fundo || "").toUpperCase() === x.hex.toUpperCase() ? "on" : ""}" data-fundo="${x.hex}" style="--c:${x.hex}" title="${esc(x.nome)}" aria-label="${esc(x.nome)}"></button>`).join("")}</div>
           <span class="rotulo">Alinhamento</span>
           <div class="segmentado segmentado-sm">${[["left", "Esq."], ["center", "Centro"], ["right", "Dir."]].map(([v, n]) => `<button type="button" data-alinhar="${v}" class="${c.alinhar === v ? "on" : ""}">${n}</button>`).join("")}</div>
           <span class="rotulo">Posição e largura (% da arte)</span>
           <div class="tres-col"><label>X ${num("x", pct(c.x), -20, 100)}</label><label>Y ${num("y", pct(c.y), -20, 100)}</label><label>Largura ${num("largura", pct(c.largura), 5, 100)}</label></div>
-          <button type="button" class="btn btn-sm btn-perigo" id="tpl-remover-campo" style="margin-top:14px">Remover campo</button>
+          <div class="linha-botoes" style="margin-top:14px">
+            <button type="button" class="btn btn-sm btn-ghost" id="tpl-duplicar-campo" title="Ctrl+D">Duplicar campo</button>
+            <button type="button" class="btn btn-sm btn-perigo" id="tpl-remover-campo" title="Delete">Remover campo</button>
+          </div>
         </div>`;
     } else {
       box.innerHTML = `
@@ -1137,7 +1171,10 @@
           <p class="ajuda ajuda-mini">A foto sempre entra como foi enviada. Se a pessoa quiser, clica em "Preparar a imagem com IA" e escolhe o padrão profissional (camiseta preta com o logo Digi, luz branca e esse fundo) ou ajusta com um prompt no chat.</p>` : ""}
           <span class="rotulo">Posição e tamanho (% da arte)</span>
           <div class="tres-col"><label>X ${num("x", pct(c.x), -20, 100)}</label><label>Y ${num("y", pct(c.y), -20, 100)}</label><label>Largura ${num("w", pct(c.w), 2, 100)}</label><label>Altura ${num("h", pct(c.h), 2, 100)}</label></div>
-          <button type="button" class="btn btn-sm btn-perigo" id="tpl-remover-campo" style="margin-top:14px">Remover campo</button>
+          <div class="linha-botoes" style="margin-top:14px">
+            <button type="button" class="btn btn-sm btn-ghost" id="tpl-duplicar-campo" title="Ctrl+D">Duplicar campo</button>
+            <button type="button" class="btn btn-sm btn-perigo" id="tpl-remover-campo" title="Delete">Remover campo</button>
+          </div>
         </div>`;
     }
   }
@@ -1244,15 +1281,20 @@
       const k = alvo.dataset.p;
       let v = alvo.type === "checkbox" ? alvo.checked : alvo.value;
       if (["x", "y", "largura", "w", "h"].includes(k)) { v = Number(v) / 100; if (!Number.isFinite(v)) return; }
-      if (["tamanho", "linhas_max", "peso"].includes(k)) { v = Number(v); if (!Number.isFinite(v)) return; }
+      if (["tamanho", "linhas_max", "peso", "entrelinha", "espacamento", "opacidade"].includes(k)) { v = Number(v); if (!Number.isFinite(v)) return; }
+      if (k === "opacidade") v = Math.max(0.05, Math.min(1, v / 100));
       if (k === "linhas_max") v = Math.max(1, Math.min(8, Math.round(v)));
       c[k] = v;
       if (k === "w") ajustarCirculo(c, "w");
       if (k === "h") ajustarCirculo(c, "h");
       if (k === "tamanho") alvo.previousElementSibling.value = Number(v).toFixed(1);
+      if (k === "entrelinha") alvo.previousElementSibling.value = Number(v).toFixed(2);
+      if (k === "espacamento") alvo.previousElementSibling.value = Math.round(v * 100) + "%";
+      if (k === "opacidade") alvo.previousElementSibling.value = Math.round(v * 100) + "%";
       if (k === "rotulo") listaCampos();
       if (k === "ia" || ((k === "w" || k === "h") && c.forma === "circulo")) { if (final) propsCampo(); }
-      mudou(); desenharEd();
+      if (final) mudou(); else { ED.sujo = true; status(); }
+      desenharEd();
     };
     props.addEventListener("input", (ev) => { if (ev.target.dataset.p) aplicarProp(ev.target, false); });
     props.addEventListener("change", (ev) => {
@@ -1269,6 +1311,8 @@
       if (b.dataset.cor) c.cor = b.dataset.cor;
       else if (b.dataset.iacor) c.ia_cor = b.dataset.iacor;
       else if (b.dataset.alinhar) c.alinhar = b.dataset.alinhar;
+      else if (b.dataset.fundo !== undefined) c.fundo = b.dataset.fundo || null;
+      else if (b.id === "tpl-duplicar-campo") { duplicarCampo(); return; }
       else if (b.dataset.forma) { c.forma = b.dataset.forma; ajustarCirculo(c); }
       else if (b.id === "tpl-remover-campo") {
         t.campos = t.campos.filter((x) => x.id !== c.id); ED.sel = null; listaCampos();
@@ -1282,6 +1326,64 @@
       ED.teste = await window.CriaDigi.carregarImagem(await window.CriaDigi.arquivoParaDataURL(f));
       desenharEd();
     });
+
+    function duplicarCampo() {
+      const c = campoSel();
+      if (!c) return;
+      const novo = { ...JSON.parse(JSON.stringify(c)), id: window.CriaDigi.uid(), rotulo: (c.rotulo || "Campo") + " (cópia)", x: c.x + 0.03, y: c.y + 0.03 };
+      t.campos = [...t.campos, novo]; ED.sel = novo.id;
+      mudou(); listaCampos(); propsCampo(); desenharEd();
+    }
+
+    // atalhos do editor de template: setas movem, Delete remove, Ctrl+D duplica, Ctrl+Z desfaz
+    const teclas = (ev) => {
+      if (!$("#tpl-admin-tela")) { document.removeEventListener("keydown", teclas); return; }
+      const digitando = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "");
+      if (digitando) return;
+      const ctrl = ev.ctrlKey || ev.metaKey;
+      if (ctrl && ev.key.toLowerCase() === "z") { ev.preventDefault(); voltarEd(!ev.shiftKey); return; }
+      if (ctrl && ev.key.toLowerCase() === "y") { ev.preventDefault(); voltarEd(false); return; }
+      const c = campoSel();
+      if (!c) return;
+      if (ctrl && ev.key.toLowerCase() === "d") { ev.preventDefault(); duplicarCampo(); return; }
+      if (ev.key === "Delete" || ev.key === "Backspace") {
+        ev.preventDefault();
+        t.campos = t.campos.filter((x) => x.id !== c.id); ED.sel = null;
+        mudou(); listaCampos(); propsCampo(); desenharEd(); return;
+      }
+      const setas = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+      if (setas[ev.key]) {
+        ev.preventDefault();
+        const passo = ev.shiftKey ? 10 : 1;
+        c.x += setas[ev.key][0] * passo / t.largura; c.y += setas[ev.key][1] * passo / t.altura;
+        desenharEd(); propsCampo();
+        clearTimeout(ED.tSeta); ED.tSeta = setTimeout(mudou, 350);
+      }
+    };
+    if (ED.teclas) document.removeEventListener("keydown", ED.teclas);
+    ED.teclas = teclas;
+    document.addEventListener("keydown", teclas);
+
+    // alinhamento automático: encaixa no centro/bordas da arte e nos outros campos
+    const ima = (c, dx, dy, k, solto) => {
+      ED.linhas = [];
+      if (solto) return { dx, dy };
+      const W = t.largura, H = t.altura, tol = 7 * k;
+      const cx = ED.caixas[c.id];
+      if (!cx) return { dx, dy };
+      const iw = cx.x1 - cx.x0, ih = cx.y1 - cx.y0;
+      const x0 = arr.caixa.x0 + dx * W, y0 = arr.caixa.y0 + dy * H;
+      const alvosV = [0, W / 2, W], alvosH = [0, H / 2, H];
+      for (const [id, o] of Object.entries(ED.caixas)) {
+        if (id === c.id || !o) continue;
+        alvosV.push(o.x0, (o.x0 + o.x1) / 2, o.x1); alvosH.push(o.y0, (o.y0 + o.y1) / 2, o.y1);
+      }
+      const melhor = (pts, alvos) => { let m = null; for (const p of pts) for (const a of alvos) { const d = a - p; if (Math.abs(d) <= tol && (!m || Math.abs(d) < Math.abs(m.d))) m = { d, a }; } return m; };
+      const mv = melhor([x0, x0 + iw / 2, x0 + iw], alvosV), mh = melhor([y0, y0 + ih / 2, y0 + ih], alvosH);
+      if (mv) { dx += mv.d / W; ED.linhas.push({ eixo: "v", pos: mv.a }); }
+      if (mh) { dy += mh.d / H; ED.linhas.push({ eixo: "h", pos: mh.a }); }
+      return { dx, dy };
+    };
 
     // canvas: selecionar, mover e redimensionar
     const cv = $("#tpl-admin-tela");
@@ -1302,7 +1404,7 @@
       listaCampos(); propsCampo(); desenharEd();
       if (!hit) return;
       const c = campoSel();
-      arr = { c, alca: hit.alca, px: p.x, py: p.y, ini: { ...c } };
+      arr = { c, alca: hit.alca, px: p.x, py: p.y, ini: { ...c }, caixa: { ...(ED.caixas[c.id] || {}) } };
       cv.setPointerCapture(ev.pointerId);
     });
     cv.addEventListener("pointermove", (ev) => {
@@ -1323,13 +1425,14 @@
           c.largura = Math.max(0.05, i.largura + dx);
         }
       } else {
-        c.x = Math.max(-0.2, Math.min(1, i.x + dx));
-        c.y = Math.max(-0.2, Math.min(1, i.y + dy));
+        const aj = ima(c, dx, dy, p.k, ev.altKey);
+        c.x = Math.max(-0.2, Math.min(1, i.x + aj.dx));
+        c.y = Math.max(-0.2, Math.min(1, i.y + aj.dy));
       }
       arr.moveu = true;
       desenharEd();
     });
-    const soltar = () => { if (arr && arr.moveu) { mudou(); propsCampo(); } arr = null; };
+    const soltar = () => { if (arr && arr.moveu) { mudou(); propsCampo(); } arr = null; if (ED.linhas.length) { ED.linhas = []; desenharEd(); } };
     cv.addEventListener("pointerup", soltar);
     cv.addEventListener("pointercancel", soltar);
   }

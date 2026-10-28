@@ -6,7 +6,13 @@
 (function () {
   "use strict";
 
-  const ENTRELINHA = 1.15;
+  const ENTRELINHA = 1.15;   // padrão; cada campo pode ter o seu (campo.entrelinha)
+  const entre = (c) => (Number(c.entrelinha) > 0 ? Number(c.entrelinha) : ENTRELINHA);
+  // espaçamento entre letras em fração do tamanho da letra (ex.: 0.05 = 5%)
+  function letras(ctx, campo, px) {
+    const e = Number(campo.espacamento) || 0;
+    if ("letterSpacing" in ctx) ctx.letterSpacing = e ? `${(e * px).toFixed(2)}px` : "0px";
+  }
 
   async function carregar(tpl) {
     const { carregarImagem } = window.CriaDigi;
@@ -27,6 +33,7 @@
     let px = inicial, linhas = [];
     for (let i = 0; i < 40; i++) {
       ctx.font = fonteCss(campo, px);
+      letras(ctx, campo, px);
       linhas = quebrar(ctx, bruto, maxW);
       const largas = linhas.some((l) => ctx.measureText(l).width > maxW + 0.5);
       if ((linhas.length <= maxLinhas && !largas) || px <= minimo) break;
@@ -120,18 +127,35 @@
   }
 
   function desenharTexto(ctx, campo, texto, W, H) {
+    ctx.save();
     const { linhas, px } = ajustarTexto(ctx, campo, texto, W);
     const x = campo.x * W, y = campo.y * H, larg = (campo.largura || 0.5) * W;
-    ctx.save();
+    const lh = px * entre(campo);
     ctx.font = fonteCss(campo, px);
-    ctx.fillStyle = campo.cor || "#222323";
+    letras(ctx, campo, px);
+    ctx.globalAlpha = campo.opacidade == null ? 1 : Math.max(0.05, Math.min(1, Number(campo.opacidade)));
     ctx.textBaseline = "top";
-    ctx.textAlign = campo.alinhar || "left";
     const ax = campo.alinhar === "center" ? x + larg / 2 : campo.alinhar === "right" ? x + larg : x;
-    linhas.forEach((l, i) => ctx.fillText(l, ax, y + i * px * ENTRELINHA));
+    // fundo do texto (pílula por linha), como no editor
+    if (campo.fundo) {
+      const pad = px * 0.32;
+      ctx.fillStyle = campo.fundo;
+      linhas.forEach((l, i) => {
+        if (!l) return;
+        const lw = ctx.measureText(l).width;
+        const lx = campo.alinhar === "center" ? ax - lw / 2 : campo.alinhar === "right" ? ax - lw : x;
+        const ly = y + i * lh - pad * 0.55, lhh = px * 1.12 + pad * 0.5, r = px * 0.12;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(lx - pad, ly, lw + pad * 2, lhh, r); else ctx.rect(lx - pad, ly, lw + pad * 2, lhh);
+        ctx.fill();
+      });
+    }
+    ctx.fillStyle = campo.cor || "#222323";
+    ctx.textAlign = campo.alinhar || "left";
+    linhas.forEach((l, i) => ctx.fillText(l, ax, y + i * lh));
     ctx.restore();
-    const alt = Math.max(1, campo.linhas_max || 1) * px * ENTRELINHA;
-    return { x0: x, y0: y, x1: x + larg, y1: y + Math.max(alt, px * ENTRELINHA) };
+    const alt = (Math.max(1, campo.linhas_max || 1) - 1) * lh + px * 1.15;
+    return { x0: x, y0: y, x1: x + larg, y1: y + Math.max(alt, px * 1.15), px, linhas };
   }
 
   // estado: { textos: { [id]: "texto" }, fotos: { [id]: { img, zoom, dx, dy } } }
@@ -184,5 +208,35 @@
     return new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error("Falha ao exportar."))), tipo, qualidade));
   }
 
-  window.CriaDigiModelo = { carregar, desenhar, exportar, ajustarTexto };
+  // a arte sem os textos (fundo + fotos + camada de cima) e os textos já calculados,
+  // para abrir no editor com cada texto como camada editável
+  async function separar(tpl, imgs, estado) {
+    const c = document.createElement("canvas");
+    c.width = tpl.largura; c.height = tpl.altura;
+    const ctx = c.getContext("2d");
+    const semTextos = { ...tpl, campos: (tpl.campos || []).filter((x) => x.tipo !== "texto") };
+    desenhar(ctx, semTextos, imgs, estado, {});
+    const blob = await new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error("Falha ao exportar."))), "image/png"));
+    const W = tpl.largura, H = tpl.altura;
+    const textos = (tpl.campos || []).filter((x) => x.tipo === "texto").map((campo) => {
+      const t = estado.textos && estado.textos[campo.id] != null ? estado.textos[campo.id] : (campo.padrao || "");
+      const { linhas, px } = ajustarTexto(ctx, campo, t, W);
+      ctx.font = fonteCss(campo, px); letras(ctx, campo, px);
+      const bloco = Math.max(1, ...linhas.map((l) => ctx.measureText(l).width));
+      const larg = (campo.largura || 0.5) * W;
+      const x0 = campo.alinhar === "center" ? campo.x * W + larg / 2 - bloco / 2 : campo.alinhar === "right" ? campo.x * W + larg - bloco : campo.x * W;
+      return {
+        texto: linhas.join("\n"), fonte: campo.fonte || "Hanken Grotesk", peso: Number(campo.peso) || 700,
+        tamanho: Math.round(px / W * 10000) / 100, cor: campo.cor || "#222323", fundo: campo.fundo || null,
+        alinhar: campo.alinhar || "left", caixaAlta: false, largura: Math.min(1.2, (campo.largura || 0.5) + 0.02),
+        entrelinha: entre(campo), espacamento: Number(campo.espacamento) || 0,
+        opacidade: campo.opacidade == null ? 1 : Number(campo.opacidade),
+        x: x0 / W,
+        y: campo.y - px * 0.04 / H, papel: campo.rotulo || "texto",
+      };
+    });
+    return { blob, textos };
+  }
+
+  window.CriaDigiModelo = { carregar, desenhar, exportar, ajustarTexto, separar };
 })();

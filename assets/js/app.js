@@ -740,7 +740,7 @@
       ed.corMarca = corDe(it);
       ed.sujarBase();
       if (semLogo) ed.logo = { ...ed.logo, id: null }; else aplicarLogoPadrao();
-      if ((it.copy && it.copy.length) || it.layout) {
+      if ((it.copy && it.copy.length) || it.layout || it.camadasFixas) {
         if (!it.camadas) await comporArte(it);
         if (it.camadas) {
           ed.textos = JSON.parse(JSON.stringify(it.camadas.textos));
@@ -1604,6 +1604,8 @@
       editarTexto((t) => ({ tamanho: t === p ? v : Math.max(1, Math.min(30, t.tamanho * k)) }), false);
     }, (v) => v.toFixed(1));
     ligarDeslizador($("#tx-entrelinha"), (v) => editarTexto({ entrelinha: v }, false), (v) => v.toFixed(2));
+    ligarDeslizador($("#tx-espacamento"), (v) => editarTexto({ espacamento: v }, false), (v) => Math.round(v * 100) + "%");
+    ligarDeslizador($("#tx-opacidade"), (v) => editarTexto({ opacidade: v / 100 }, false), (v) => v + "%");
     ligarDeslizador($("#tx-largura"), (v) => editarTexto({ largura: v / 100 }, false), (v) => v + "%");
     $("#tx-cores").addEventListener("click", (ev) => { const b = ev.target.closest(".amostra"); if (b) editarTexto({ cor: b.dataset.hex }); });
     $("#tx-fundos").addEventListener("click", (ev) => { const b = ev.target.closest(".amostra"); if (b) editarTexto({ fundo: b.dataset.hex || null }); });
@@ -1906,6 +1908,10 @@
     $("#tx-largura").value = Math.round(t.largura * 100); $("#tx-largura").previousElementSibling.value = Math.round(t.largura * 100) + "%";
     const el = t.entrelinha || 1.12;
     $("#tx-entrelinha").value = el; $("#tx-entrelinha").previousElementSibling.value = el.toFixed(2);
+    const esp = t.espacamento || 0;
+    $("#tx-espacamento").value = esp; $("#tx-espacamento").previousElementSibling.value = Math.round(esp * 100) + "%";
+    const op = Math.round((t.opacidade == null ? 1 : t.opacidade) * 100);
+    $("#tx-opacidade").value = op; $("#tx-opacidade").previousElementSibling.value = op + "%";
     marcarSwatch($("#tx-cores"), t.cor);
     marcarSwatch($("#tx-fundos"), t.fundo || "");
     $$("button", $("#tx-alinhar")).forEach((b) => b.classList.toggle("on", b.dataset.al === t.alinhar));
@@ -2317,7 +2323,8 @@
       </div>
       <button type="button" class="btn btn-primario btn-largo" id="tpl-baixar" style="margin-top:12px">Baixar arte</button>
       <button type="button" class="btn btn-ghost btn-largo" id="tpl-copiar" style="margin-top:8px">Copiar</button>
-      <button type="button" class="btn btn-ghost btn-largo" id="tpl-editor" style="margin-top:8px" title="Recortar, redimensionar, ajustar">Abrir no editor</button>`;
+      <button type="button" class="btn btn-ghost btn-largo" id="tpl-editor" style="margin-top:8px" title="Todas as opções: espaçamento entre linhas e letras, fontes, cores, fundo do texto, elementos, guias, recorte e tamanho">Editar com todas as opções</button>
+      <p class="ajuda ajuda-mini" style="margin-top:6px">Abre no editor com cada texto como camada: espaçamentos, fonte, cor, fundo, posição, elementos e guias.</p>`;
 
     p.oninput = (ev) => {
       const id = ev.target.dataset.tplTexto;
@@ -2540,12 +2547,21 @@
     } catch (_) { toast("Seu navegador não permitiu copiar. Use o botão Baixar.", "erro"); }
   }
 
+  // abre o template no editor completo: a arte (fundo, fotos e moldura) vira a base
+  // e cada texto vira uma camada editável (fonte, espaçamentos, cor, fundo, posição…)
   async function editarTemplate() {
     try {
-      const blob = await Modelo.exportar(S.tpl.t, S.tpl.imgs, S.tpl.estado, "image/png");
+      const { blob, textos } = await Modelo.separar(S.tpl.t, S.tpl.imgs, S.tpl.estado);
       const url = await arquivoParaDataURL(blob);
       $("#tpl-uso").hidden = true;
-      abrirNoEditor({ id: "tpl-" + Date.now(), url, formato: null, prompt: S.tpl.t.nome, deTemplate: true, semIA: true }, { semLogo: true });
+      const camadas = {
+        textos: textos.map((t) => ({ ...t, id: uid() })),
+        degrade: { cor: "#232323", forca: 0, lado: "baixo" }, logo: null, imagens: [],
+      };
+      await abrirNoEditor({
+        id: "tpl-" + Date.now(), url, formato: null, prompt: S.tpl.t.nome, deTemplate: true, semIA: true, camadas, camadasFixas: true,
+      }, { semLogo: true });
+      mostrarFerr("texto");
     } catch (e) { toast(e.message, "erro"); }
   }
 

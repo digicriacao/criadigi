@@ -696,7 +696,10 @@
 
     _desenharTexto(ctx, t, W, H, comUI) {
       const px = Math.max(6, W * t.tamanho / 100);
+      ctx.save();
+      ctx.globalAlpha = t.opacidade == null ? 1 : Math.max(0.05, Math.min(1, t.opacidade));
       ctx.font = `${t.peso} ${px}px "${t.fonte}", "Hanken Grotesk", system-ui, sans-serif`;
+      if ("letterSpacing" in ctx) ctx.letterSpacing = t.espacamento ? `${(t.espacamento * px).toFixed(2)}px` : "0px";
       ctx.textBaseline = "top";
       const texto = t.caixaAlta ? t.texto.toLocaleUpperCase("pt-BR") : t.texto;
       const maxW = t.largura * W;
@@ -721,6 +724,7 @@
       ctx.textAlign = t.alinhar;
       linhas.forEach((l, i) => ctx.fillText(l, ancoraX, y0 + i * lh + px * 0.04));
       ctx.textAlign = "left";
+      ctx.restore();
       t._caixa = { x0: x0 - pad, y0: y0 - pad * 0.55, x1: x0 + larguraBloco + pad, y1: y0 + (linhas.length - 1) * lh + alturaLinha + pad * 0.3 };
     }
 
