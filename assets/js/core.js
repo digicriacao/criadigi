@@ -716,7 +716,7 @@
 
     async apagarTemplate(t) {
       if (DEMO) { const d = demo(); d.templates = (d.templates || []).filter((x) => x.id !== t.id); demoSalvar(); return; }
-      const arquivos = [t.base_caminho, t.sobre_caminho].filter(Boolean);
+      const arquivos = [t.base_caminho, t.sobre_caminho, ...(t.campos || []).filter((c) => c.tipo === "imagem").map((c) => c.caminho)].filter(Boolean);
       if (arquivos.length) await sb.storage.from(B.marca).remove(arquivos);
       const { error } = await sb.from(T.templates).delete().eq("id", t.id);
       if (error) throw error;
@@ -1394,6 +1394,75 @@
         box.__loteAtualizar();
       }
     });
+  }
+
+  // ================================================================ barras deslizantes com número editável
+  // Em toda .deslizador, o número ao lado da barra vira um campo: dá para arrastar
+  // a barra ou digitar o valor exato. A <output> original continua no lugar (escondida)
+  // porque o resto do código escreve nela; quando ela muda, o campo acompanha.
+  function numeroDaBarra(label) {
+    const range = label.querySelector('input[type="range"]');
+    const out = label.querySelector("output");
+    if (!range || !out || label.__numero) return;
+    label.__numero = true;
+    const escala = Number(range.dataset.escala) || 1;
+    const casas = () => {
+      const passo = String(Number(range.step) * escala || 1);
+      return passo.includes(".") ? Math.min(3, passo.split(".")[1].length) : 0;
+    };
+    const unidade = () => { const m = String(out.value || out.textContent || "").trim().match(/[^\d.,\-\s]+$/); return m ? m[0] : ""; };
+    const num = document.createElement("input");
+    num.type = "number"; num.className = "num-deslizador"; num.step = "any"; num.inputMode = "decimal";
+    num.setAttribute("aria-label", (label.firstChild && label.firstChild.textContent || "Valor").trim());
+    const suf = document.createElement("span"); suf.className = "num-unidade";
+    const caixa = document.createElement("span"); caixa.className = "num-caixa";
+    caixa.append(num, suf);
+    out.before(caixa);
+    out.classList.add("oculto");
+    const mostrar = () => {
+      if (document.activeElement === num) return;
+      const v = Number(range.value) * escala;
+      num.value = Number.isFinite(v) ? String(Number(v.toFixed(casas()))) : "";
+      suf.textContent = unidade();
+    };
+    const aplicar = (final) => {
+      let v = Number(String(num.value).replace(",", "."));
+      if (!Number.isFinite(v)) return;
+      const min = Number(range.min) * escala, max = Number(range.max) * escala;
+      if (Number.isFinite(min)) v = Math.max(min, v);
+      if (Number.isFinite(max)) v = Math.min(max, v);
+      range.value = String(v / escala);
+      range.dispatchEvent(new Event("input", { bubbles: true }));
+      if (final) { range.dispatchEvent(new Event("change", { bubbles: true })); num.value = String(Number(v.toFixed(casas()))); }
+    };
+    num.addEventListener("input", () => { if (num.value !== "" && num.value !== "-") aplicar(false); });
+    num.addEventListener("change", () => aplicar(true));
+    num.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") { ev.preventDefault(); aplicar(true); num.blur(); }
+      if (ev.key === "Escape") { num.blur(); mostrar(); }
+    });
+    num.addEventListener("blur", mostrar);
+    range.addEventListener("input", mostrar);
+    range.addEventListener("change", mostrar);
+    new MutationObserver(mostrar).observe(out, { childList: true, characterData: true, subtree: true });
+    // valores definidos pelo código (range.value = …) sem evento: confere de tempos em tempos enquanto visível
+    mostrar();
+  }
+  function ativarNumeros(raiz = document) {
+    raiz.querySelectorAll(".deslizador").forEach(numeroDaBarra);
+  }
+  if (typeof MutationObserver !== "undefined") {
+    const iniciarNumeros = () => {
+      ativarNumeros();
+      new MutationObserver((mut) => {
+        for (const m of mut) for (const n of m.addedNodes) {
+          if (n.nodeType !== 1) continue;
+          if (n.matches && n.matches(".deslizador")) numeroDaBarra(n);
+          else if (n.querySelectorAll) ativarNumeros(n);
+        }
+      }).observe(document.body, { childList: true, subtree: true });
+    };
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", iniciarNumeros); else iniciarNumeros();
   }
 
   // ================================================================ favicon animado

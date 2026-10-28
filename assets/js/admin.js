@@ -459,13 +459,20 @@
             };
             const base = await copiar(t.base_url, "fundo");
             const sobre = await copiar(t.sobre_url, "moldura");
+            // imagens e ícones fixos também ganham cópia própria (a logo continua sendo a da marca)
+            const campos = [];
+            for (const c of t.campos || []) {
+              const novo = { ...JSON.parse(JSON.stringify(c)), id: window.CriaDigi.uid() };
+              if (c.tipo === "imagem" && c.url) { const cp = await copiar(c.url, "elemento"); novo.url = cp.url; novo.caminho = cp.caminho; }
+              campos.push(novo);
+            }
             const nomes = new Set(S.templatesAdmin.map((x) => x.nome));
             let nome = `Cópia de ${t.nome}`, n = 2;
             while (nomes.has(nome)) nome = `Cópia de ${t.nome} (${n++})`;
             abrirEditorTemplate({
               ...JSON.parse(JSON.stringify(t)), id: null, nome, ativo: false,
               base_caminho: base.caminho, base_url: base.url, sobre_caminho: sobre.caminho, sobre_url: sobre.url,
-              campos: (t.campos || []).map((c) => ({ ...JSON.parse(JSON.stringify(c)), id: window.CriaDigi.uid() })),
+              campos,
               ordem: (S.templatesAdmin.at(-1)?.ordem || 0) + 1,
             }, true);
             toast("Cópia criada (inativa). Ajuste o que quiser, troque a arte se precisar e clique em Salvar template.", "ok", 7000);
@@ -1011,6 +1018,7 @@
   async function abrirEditorTemplate(t, novo) {
     ED.t = t; ED.novo = novo; ED.sujo = novo; ED.sel = null; ED.teste = null;
     ED.hist = [JSON.stringify(t.campos || [])]; ED.futuro = []; ED.linhas = [];
+    if (!ED.ouvindo) { ED.ouvindo = true; window.CriaDigiModelo.aoCarregar(() => { if ($("#tpl-admin-tela")) desenharEd(); }); }
     const el = $("#admin-conteudo");
     el.innerHTML = `
       <div class="secao-topo">
@@ -1045,7 +1053,10 @@
             <div class="linha-botoes" style="margin-top:8px">
               <button type="button" class="btn btn-sm btn-ghost" id="tpl-add-texto">+ Texto editável</button>
               <button type="button" class="btn btn-sm btn-ghost" id="tpl-add-foto">+ Área de foto</button>
+              <button type="button" class="btn btn-sm btn-ghost" id="tpl-add-logo">+ Logo</button>
+              <button type="button" class="btn btn-sm btn-ghost" id="tpl-add-imagem">+ Imagem ou ícone</button>
             </div>
+            <div class="tpl-biblioteca" id="tpl-biblioteca" hidden></div>
             <div class="camadas" id="tpl-campos"></div>
             <div id="tpl-props"></div>
           </section>
@@ -1109,8 +1120,8 @@
     const campos = ED.t.campos || [];
     $("#tpl-campos").innerHTML = campos.length ? campos.map((c) => `
       <button type="button" class="camada ${ED.sel === c.id ? "on" : ""}" data-campo-id="${c.id}">
-        <span class="etiqueta ${c.tipo === "foto" ? "rosa" : ""}">${c.tipo === "foto" ? "Foto" : "Texto"}</span> ${esc(c.rotulo || "")}
-      </button>`).join("") : `<p class="ajuda">Adicione os textos que o usuário vai poder trocar e a área onde entra a foto.</p>`;
+        <span class="etiqueta ${c.tipo === "foto" ? "rosa" : ""}">${{ foto: "Foto", texto: "Texto", logo: "Logo", imagem: "Imagem" }[c.tipo] || "Campo"}</span> ${esc(c.rotulo || "")}
+      </button>`).join("") : `<p class="ajuda">Adicione os textos que o usuário vai poder trocar, a área onde entra a foto, a logo e os ícones ou imagens fixos.</p>`;
   }
 
   function campoSel() { return (ED.t.campos || []).find((c) => c.id === ED.sel) || null; }
@@ -1141,7 +1152,7 @@
           </div>
           <p class="ajuda ajuda-mini">Se o usuário escrever demais, a letra diminui sozinha para caber.</p>
           <label class="deslizador">Espaçamento entre linhas <output>${(Number(c.entrelinha) || 1.15).toFixed(2)}</output><input type="range" data-p="entrelinha" min="0.7" max="2.2" step="0.01" value="${Number(c.entrelinha) || 1.15}"></label>
-          <label class="deslizador">Espaçamento entre letras <output>${Math.round((Number(c.espacamento) || 0) * 100)}%</output><input type="range" data-p="espacamento" min="-0.08" max="0.4" step="0.005" value="${Number(c.espacamento) || 0}"></label>
+          <label class="deslizador">Espaçamento entre letras <output>${Math.round((Number(c.espacamento) || 0) * 100)}%</output><input type="range" data-escala="100" data-p="espacamento" min="-0.08" max="0.4" step="0.005" value="${Number(c.espacamento) || 0}"></label>
           <label class="deslizador">Opacidade <output>${Math.round((c.opacidade == null ? 1 : c.opacidade) * 100)}%</output><input type="range" data-p="opacidade" min="5" max="100" value="${Math.round((c.opacidade == null ? 1 : c.opacidade) * 100)}"></label>
           <span class="rotulo">Cor</span>${swatchesAdmin(c.cor, "data-cor")}
           <span class="rotulo">Fundo do texto</span>
@@ -1150,6 +1161,28 @@
           <div class="segmentado segmentado-sm">${[["left", "Esq."], ["center", "Centro"], ["right", "Dir."]].map(([v, n]) => `<button type="button" data-alinhar="${v}" class="${c.alinhar === v ? "on" : ""}">${n}</button>`).join("")}</div>
           <span class="rotulo">Posição e largura (% da arte)</span>
           <div class="tres-col"><label>X ${num("x", pct(c.x), -20, 100)}</label><label>Y ${num("y", pct(c.y), -20, 100)}</label><label>Largura ${num("largura", pct(c.largura), 5, 100)}</label></div>
+          <div class="linha-botoes" style="margin-top:14px">
+            <button type="button" class="btn btn-sm btn-ghost" id="tpl-duplicar-campo" title="Ctrl+D">Duplicar campo</button>
+            <button type="button" class="btn btn-sm btn-perigo" id="tpl-remover-campo" title="Delete">Remover campo</button>
+          </div>
+        </div>`;
+    } else if (c.tipo === "imagem" || c.tipo === "logo") {
+      const logos = S.arquivos.filter((a) => a.tipo === "logo" && a.ativo !== false);
+      const op = Math.round((c.opacidade == null ? 1 : c.opacidade) * 100);
+      box.innerHTML = `
+        <div class="props-campo">
+          <label class="campo"><span class="rotulo">Nome (só para você)</span><input type="text" data-p="rotulo" value="${esc(c.rotulo)}"></label>
+          ${c.tipo === "logo" ? `<span class="rotulo">Versão da logo</span>
+            <div class="logos-tpl">${logos.map((l) => `<button type="button" class="logo-op ${l.variante === "negativa" ? "escuro" : ""} ${l.id === c.logo_id ? "on" : ""}" data-logo-tpl="${l.id}" title="${esc(l.nome)}"><img src="${esc(l.url)}" alt=""></button>`).join("") || `<p class="ajuda">Nenhuma logo cadastrada (Admin › Logos).</p>`}</div>`
+          : `<div class="tpl-img-previa"><img src="${esc(c.url)}" alt=""></div>
+            <button type="button" class="btn btn-sm btn-ghost" id="tpl-trocar-imagem">Trocar imagem</button>`}
+          <label class="deslizador">Tamanho (% da largura) <output>${pct(c.w)}%</output><input type="range" data-p="w" min="2" max="100" step="0.5" value="${pct(c.w)}"></label>
+          <label class="deslizador">Opacidade <output>${op}%</output><input type="range" data-p="opacidade" min="5" max="100" value="${op}"></label>
+          ${c.tipo === "imagem" ? `<span class="rotulo">Cor <small class="ajuda">(recolore ícones e formas)</small></span>
+            <div class="paleta"><button type="button" class="amostra nenhuma ${!c.cor ? "on" : ""}" data-imgcor="" title="Cores originais" aria-label="Cores originais"></button>${S.cores.map((x) => `<button type="button" class="amostra ${String(c.cor || "").toUpperCase() === x.hex.toUpperCase() ? "on" : ""}" data-imgcor="${x.hex}" style="--c:${x.hex}" title="${esc(x.nome)}" aria-label="${esc(x.nome)}"></button>`).join("")}</div>` : ""}
+          <span class="rotulo">Posição (% da arte)</span>
+          <div class="tres-col"><label>X ${num("x", pct(c.x), -20, 100)}</label><label>Y ${num("y", pct(c.y), -20, 100)}</label></div>
+          <p class="ajuda ajuda-mini">Fica fixo na arte para quem usa o template. Em "Editar com todas as opções", vira uma camada que a pessoa pode mover.</p>
           <div class="linha-botoes" style="margin-top:14px">
             <button type="button" class="btn btn-sm btn-ghost" id="tpl-duplicar-campo" title="Ctrl+D">Duplicar campo</button>
             <button type="button" class="btn btn-sm btn-perigo" id="tpl-remover-campo" title="Delete">Remover campo</button>
@@ -1177,6 +1210,12 @@
           </div>
         </div>`;
     }
+  }
+
+  // proporção (altura/largura) da imagem de um campo de logo ou imagem
+  async function definirProporcao(c) {
+    try { const img = await window.CriaDigi.carregarImagem(c.url); c.proporcao = (img.naturalHeight || 1) / (img.naturalWidth || 1); } catch (_) { /* mantém */ }
+    return c;
   }
 
   // círculo: mesma medida em pixels na largura e na altura
@@ -1267,6 +1306,81 @@
       t.campos = [...(t.campos || []), c]; ED.sel = c.id;
       mudou(); listaCampos(); propsCampo(); desenharEd();
     });
+    // ---- logo e imagens fixas
+    $("#tpl-add-logo").addEventListener("click", async () => {
+      const logos = S.arquivos.filter((a) => a.tipo === "logo" && a.ativo !== false);
+      if (!logos.length) return toast("Cadastre a logo em Admin › Logos primeiro.", "aviso", 6000);
+      const l = logos.find((x) => x.id === S.marca.logo_padrao) || logos.find((x) => x.variante === "principal") || logos[0];
+      const c = { id: window.CriaDigi.uid(), tipo: "logo", rotulo: "Logo · " + (l.nome || "").replace(/\.[^.]+$/, ""), logo_id: l.id, url: l.url, x: 0.74, y: 0.86, w: 0.2, proporcao: 0.5, opacidade: 1 };
+      await definirProporcao(c);
+      c.y = Math.max(0, 0.95 - window.CriaDigiModelo.alturaImagem(c, t.largura, t.altura));
+      t.campos = [...(t.campos || []), c]; ED.sel = c.id;
+      mudou(); listaCampos(); propsCampo(); desenharEd();
+    });
+    $("#tpl-add-imagem").addEventListener("click", () => abrirBiblioteca("novo"));
+
+    // biblioteca: enviar um arquivo ou escolher entre os ícones e assets da marca
+    async function abrirBiblioteca(modo) {
+      const box = $("#tpl-biblioteca");
+      if (!box.hidden && box.dataset.modo === modo) { box.hidden = true; return; }
+      box.dataset.modo = modo; box.hidden = false;
+      box.innerHTML = `
+        <div class="tpl-bib-topo"><b>${modo === "trocar" ? "Trocar a imagem" : "Adicionar imagem ou ícone"}</b><button type="button" class="icone mini-x" data-bib-fechar aria-label="Fechar">×</button></div>
+        <label class="envio envio-mini"><input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden data-bib-envio>
+          <span><b>Enviar do computador</b>PNG, SVG, JPG ou WebP</span></label>
+        <p class="ajuda" style="margin:10px 0 6px">Ou escolha da marca:</p>
+        <div class="lib-grade" data-bib-grade><p class="ajuda">Carregando…</p></div>`;
+      let itens = [];
+      try {
+        const daId = await API.assets({ escopo: "marca" });
+        itens = [
+          ...S.arquivos.filter((a) => a.tipo === "icone" && a.ativo !== false).map((a) => ({ url: a.url, nome: a.descricao || a.nome, tipo: "icone" })),
+          ...daId.map((a) => ({ url: a.url, nome: a.nome, tipo: a.tipo })),
+        ];
+      } catch (_) { /* segue só com o envio */ }
+      box.__itens = itens;
+      $("[data-bib-grade]", box).innerHTML = itens.length
+        ? itens.map((a, i) => `<div class="lib-item" data-bib-item="${i}" title="${esc(a.nome || "")}" role="button" tabindex="0"><img src="${esc(a.url)}" alt="" crossorigin="anonymous"></div>`).join("")
+        : `<p class="ajuda">Nenhum ícone ou asset na ID ainda (Admin › Ícones ou Assets).</p>`;
+    }
+    const biblioteca = $("#tpl-biblioteca");
+    // as imagens do template ficam no storage da marca (cópia própria: apagar um asset não quebra o template)
+    const usarImagem = async (fonte, nome) => {
+      const modo = biblioteca.dataset.modo;
+      biblioteca.classList.add("carregando");
+      try {
+        let file = fonte;
+        if (typeof fonte === "string") {
+          const r = await fetch(fonte);
+          if (!r.ok) throw new Error("Não consegui copiar a imagem.");
+          const blob = await r.blob();
+          file = new File([blob], (nome || "imagem") + "." + ((blob.type.split("/")[1] || "png").replace("jpeg", "jpg").replace("svg+xml", "svg")), { type: blob.type });
+        }
+        const arq = await window.CriaDigi.prepararAsset(file);
+        const up = await API.enviarArteTemplate(new File([arq.blob], arq.nome + (arq.blob.type === "image/png" ? ".png" : ".jpg"), { type: arq.blob.type }));
+        const prop = arq.altura / arq.largura;
+        if (modo === "trocar" && campoSel() && campoSel().tipo === "imagem") {
+          const c = campoSel();
+          Object.assign(c, { url: up.url, caminho: up.caminho, proporcao: prop, rotulo: arq.nome });
+        } else {
+          const w = arq.tipo === "icone" ? 0.12 : 0.3;
+          const c = { id: window.CriaDigi.uid(), tipo: "imagem", rotulo: arq.nome, url: up.url, caminho: up.caminho, x: 0.5 - w / 2, y: 0.5 - w * prop * t.largura / t.altura / 2, w, proporcao: prop, opacidade: 1, cor: null };
+          t.campos = [...(t.campos || []), c]; ED.sel = c.id;
+        }
+        biblioteca.hidden = true;
+        mudou(); listaCampos(); propsCampo(); desenharEd();
+      } catch (e) { toast(e.message, "erro", 6000); }
+      biblioteca.classList.remove("carregando");
+    };
+    biblioteca.addEventListener("change", (ev) => { if (ev.target.matches("[data-bib-envio]") && ev.target.files[0]) { usarImagem(ev.target.files[0]); ev.target.value = ""; } });
+    biblioteca.addEventListener("click", (ev) => {
+      if (ev.target.closest("[data-bib-fechar]")) { biblioteca.hidden = true; return; }
+      const it = ev.target.closest("[data-bib-item]");
+      if (it) { const a = biblioteca.__itens[Number(it.dataset.bibItem)]; if (a) usarImagem(a.url, a.nome); }
+    });
+    biblioteca.addEventListener("dragover", (ev) => { ev.preventDefault(); });
+    biblioteca.addEventListener("drop", (ev) => { ev.preventDefault(); const f = ev.dataTransfer.files[0]; if (f) usarImagem(f); });
+
     $("#tpl-campos").addEventListener("click", (ev) => {
       const b = ev.target.closest("[data-campo-id]");
       if (!b) return;
@@ -1291,6 +1405,7 @@
       if (k === "entrelinha") alvo.previousElementSibling.value = Number(v).toFixed(2);
       if (k === "espacamento") alvo.previousElementSibling.value = Math.round(v * 100) + "%";
       if (k === "opacidade") alvo.previousElementSibling.value = Math.round(v * 100) + "%";
+      if (k === "w" && (c.tipo === "imagem" || c.tipo === "logo") && alvo.type === "range") alvo.previousElementSibling.value = Math.round(v * 1000) / 10 + "%";
       if (k === "rotulo") listaCampos();
       if (k === "ia" || ((k === "w" || k === "h") && c.forma === "circulo")) { if (final) propsCampo(); }
       if (final) mudou(); else { ED.sujo = true; status(); }
@@ -1312,6 +1427,14 @@
       else if (b.dataset.iacor) c.ia_cor = b.dataset.iacor;
       else if (b.dataset.alinhar) c.alinhar = b.dataset.alinhar;
       else if (b.dataset.fundo !== undefined) c.fundo = b.dataset.fundo || null;
+      else if (b.dataset.imgcor !== undefined) c.cor = b.dataset.imgcor || null;
+      else if (b.dataset.logoTpl) {
+        const l = S.arquivos.find((a) => a.id === b.dataset.logoTpl);
+        if (!l) return;
+        c.logo_id = l.id; c.url = l.url; c.rotulo = "Logo · " + (l.nome || "").replace(/\.[^.]+$/, "");
+        definirProporcao(c).then(() => { listaCampos(); desenharEd(); });
+      }
+      else if (b.id === "tpl-trocar-imagem") { abrirBiblioteca("trocar"); return; }
       else if (b.id === "tpl-duplicar-campo") { duplicarCampo(); return; }
       else if (b.dataset.forma) { c.forma = b.dataset.forma; ajustarCirculo(c); }
       else if (b.id === "tpl-remover-campo") {
@@ -1393,7 +1516,7 @@
       const sel = ED.caixas[ED.sel];
       if (sel && sel.alca && Math.hypot(p.x - sel.alca.x, p.y - sel.alca.y) < Math.max(sel.alca.r, 18 * p.k)) return { id: ED.sel, alca: true };
       const campos = [...(t.campos || [])].reverse();
-      const ordem = [...campos.filter((c) => c.tipo === "texto"), ...campos.filter((c) => c.tipo === "foto")];
+      const ordem = [...campos.filter((c) => c.tipo === "texto"), ...campos.filter((c) => c.tipo === "imagem" || c.tipo === "logo"), ...campos.filter((c) => c.tipo === "foto")];
       const c = ordem.find((x) => { const k = ED.caixas[x.id]; return k && p.x >= k.x0 && p.x <= k.x1 && p.y >= k.y0 && p.y <= k.y1; });
       return c ? { id: c.id, alca: false } : null;
     };
@@ -1421,6 +1544,8 @@
           c.w = Math.max(0.02, i.w + dx);
           c.h = Math.max(0.02, i.h + dy);
           ajustarCirculo(c, "w");
+        } else if (c.tipo === "imagem" || c.tipo === "logo") {
+          c.w = Math.max(0.02, i.w + Math.max(dx, dy * (H / W) / (c.proporcao || 1)));
         } else {
           c.largura = Math.max(0.05, i.largura + dx);
         }

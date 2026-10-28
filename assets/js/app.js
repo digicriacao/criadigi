@@ -2260,6 +2260,7 @@
     if (voltarLista) { if (S.focoTpl) definirFoco(null); S.tpl = null; mostrarAba("templates"); }
   }
 
+  Modelo.aoCarregar(() => { if (S.tpl && !$("#tpl-uso").hidden) desenharTpl(); });
   function desenharTpl() {
     if (!S.tpl) return;
     const ctx = $("#tpl-tela").getContext("2d");
@@ -2551,12 +2552,13 @@
   // e cada texto vira uma camada editável (fonte, espaçamentos, cor, fundo, posição…)
   async function editarTemplate() {
     try {
-      const { blob, textos } = await Modelo.separar(S.tpl.t, S.tpl.imgs, S.tpl.estado);
+      const { blob, textos, imagens } = await Modelo.separar(S.tpl.t, S.tpl.imgs, S.tpl.estado);
       const url = await arquivoParaDataURL(blob);
       $("#tpl-uso").hidden = true;
       const camadas = {
         textos: textos.map((t) => ({ ...t, id: uid() })),
-        degrade: { cor: "#232323", forca: 0, lado: "baixo" }, logo: null, imagens: [],
+        degrade: { cor: "#232323", forca: 0, lado: "baixo" }, logo: null,
+        imagens: (imagens || []).map((m) => ({ ...m, id: uid() })),
       };
       await abrirNoEditor({
         id: "tpl-" + Date.now(), url, formato: null, prompt: S.tpl.t.nome, deTemplate: true, semIA: true, camadas, camadasFixas: true,

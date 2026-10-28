@@ -859,3 +859,32 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--r
 .abas-ferr { display: grid; grid-template-columns: repeat(3, 1fr); overflow: visible; border-bottom: 0; row-gap: 2px; }
 .abas-ferr .aba { font-size: 13px; padding: 7px 4px; border-bottom: 2px solid var(--line-soft); text-align: center; }
 .abas-ferr .aba.on { border-bottom-color: var(--rosa); }
+
+/* número editável ao lado das barras deslizantes */
+.deslizador output.oculto { display: none; }
+.num-caixa { display: inline-flex; align-items: center; gap: 2px; justify-self: end; }
+.num-deslizador {
+  width: 62px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink);
+  font: inherit; font-size: 12.5px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; -moz-appearance: textfield;
+}
+.num-deslizador::-webkit-outer-spin-button, .num-deslizador::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.num-deslizador:hover { border-color: var(--ink-faint); }
+.num-deslizador:focus { outline: none; border-color: var(--rosa); box-shadow: 0 0 0 3px var(--rosa-fundo); }
+.num-unidade { font-size: 12px; color: var(--ink-soft); font-weight: 500; min-width: 0; }
+.num-unidade:empty { display: none; }
+.deslizador .num-caixa .num-deslizador { width: 64px; min-width: 0; height: auto; padding: 3px 6px; margin: 0; font-size: 12.5px; border-radius: 6px; grid-column: auto; }
+
+/* admin: logo e imagens fixas nos templates */
+.tpl-biblioteca { background: var(--bg); border: 1px solid var(--line-soft); border-radius: var(--raio-sm); padding: 10px 12px; margin: 10px 0; }
+.tpl-biblioteca.carregando { opacity: .55; pointer-events: none; }
+.tpl-bib-topo { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13.5px; }
+.envio-mini { padding: 12px; min-height: 0; }
+.envio-mini span { font-size: 12px; }
+.logos-tpl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 6px 0 10px; }
+.logos-tpl .logo-op { height: 54px; padding: 6px; }
+.logos-tpl .logo-op img { max-height: 100%; max-width: 100%; object-fit: contain; }
+.tpl-img-previa { height: 90px; border-radius: 8px; margin: 4px 0 8px; display: grid; place-items: center; padding: 8px;
+  background-color: #fff; background-image: linear-gradient(45deg, #F2F2F3 25%, transparent 25%), linear-gradient(-45deg, #F2F2F3 25%, transparent 25%),
+  linear-gradient(45deg, transparent 75%, #F2F2F3 75%), linear-gradient(-45deg, transparent 75%, #F2F2F3 75%);
+  background-size: 12px 12px; background-position: 0 0, 0 6px, 6px -6px, -6px 0; }
+.tpl-img-previa img { max-height: 100%; max-width: 100%; object-fit: contain; }

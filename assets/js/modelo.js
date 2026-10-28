@@ -19,8 +19,57 @@
     const [base, sobre] = await Promise.all([
       carregarImagem(tpl.base_url),
       tpl.sobre_url ? carregarImagem(tpl.sobre_url).catch(() => null) : Promise.resolve(null),
+      precarregar(tpl),
     ]);
     return { base, sobre };
+  }
+
+  // ---- imagens fixas do template (ícones, elementos e logo): cache por endereço
+  const cache = new Map();          // url -> { img, pronto, erro }
+  const ouvintes = new Set();       // redesenha quando uma imagem termina de carregar
+  function imagem(url) {
+    if (!url) return null;
+    let c = cache.get(url);
+    if (!c) {
+      c = { img: null, pronto: false };
+      cache.set(url, c);
+      window.CriaDigi.carregarImagem(url).then((img) => { c.img = img; c.pronto = true; ouvintes.forEach((f) => { try { f(); } catch (_) { /* ignora */ } }); })
+        .catch(() => { c.erro = true; });
+    }
+    return c.pronto ? c.img : null;
+  }
+  async function precarregar(tpl) {
+    const urls = (tpl.campos || []).filter((c) => (c.tipo === "imagem" || c.tipo === "logo") && c.url).map((c) => c.url);
+    await Promise.all(urls.map(async (u) => {
+      const c = cache.get(u);
+      if (c && c.pronto) return;
+      try { const img = await window.CriaDigi.carregarImagem(u); cache.set(u, { img, pronto: true }); } catch (_) { /* segue sem */ }
+    }));
+  }
+  function aoCarregar(fn) { ouvintes.add(fn); return () => ouvintes.delete(fn); }
+  // altura do campo de imagem em fração da arte (mantém a proporção da imagem)
+  function alturaImagem(campo, W, H) { return (campo.w || 0.2) * (campo.proporcao || 1) * W / H; }
+  const tintas = new Map();
+  function tinta(url, img, cor) {
+    const k = url + "|" + cor;
+    if (tintas.has(k)) return tintas.get(k);
+    const c = document.createElement("canvas");
+    c.width = img.naturalWidth || img.width; c.height = img.naturalHeight || img.height;
+    const x = c.getContext("2d");
+    x.drawImage(img, 0, 0); x.globalCompositeOperation = "source-in"; x.fillStyle = cor; x.fillRect(0, 0, c.width, c.height);
+    tintas.set(k, c);
+    return c;
+  }
+  function desenharImagem(ctx, campo, W, H) {
+    const x = campo.x * W, y = campo.y * H, w = (campo.w || 0.2) * W, h = alturaImagem(campo, W, H) * H;
+    const img = imagem(campo.url);
+    if (img) {
+      ctx.save();
+      ctx.globalAlpha = campo.opacidade == null ? 1 : Math.max(0.05, Math.min(1, Number(campo.opacidade)));
+      ctx.drawImage(campo.cor ? tinta(campo.url, img, campo.cor) : img, x, y, w, h);
+      ctx.restore();
+    }
+    return { x0: x, y0: y, x1: x + w, y1: y + h };
   }
 
   // quebra o texto em linhas e reduz a fonte até caber (largura e número de linhas)
@@ -173,6 +222,8 @@
       caixas[c.id] = { x0: c.x * W, y0: c.y * H, x1: (c.x + c.w) * W, y1: (c.y + c.h) * H };
     }
     if (imgs.sobre) ctx.drawImage(imgs.sobre, 0, 0, W, H);
+    // ícones, elementos e logo fixos (na ordem da lista), abaixo dos textos
+    for (const c of campos.filter((x) => x.tipo === "imagem" || x.tipo === "logo")) caixas[c.id] = desenharImagem(ctx, c, W, H);
     for (const c of campos.filter((x) => x.tipo === "texto")) {
       const t = estado.textos && estado.textos[c.id] != null ? estado.textos[c.id] : (c.padrao || "");
       caixas[c.id] = desenharTexto(ctx, c, t, W, H);
@@ -200,6 +251,7 @@
   }
 
   async function exportar(tpl, imgs, estado, tipo = "image/png", qualidade = 0.92) {
+    await precarregar(tpl);
     const c = document.createElement("canvas");
     c.width = tpl.largura; c.height = tpl.altura;
     const ctx = c.getContext("2d");
@@ -214,7 +266,8 @@
     const c = document.createElement("canvas");
     c.width = tpl.largura; c.height = tpl.altura;
     const ctx = c.getContext("2d");
-    const semTextos = { ...tpl, campos: (tpl.campos || []).filter((x) => x.tipo !== "texto") };
+    // fundo, fotos e moldura viram a base; textos, ícones e logo viram camadas
+    const semTextos = { ...tpl, campos: (tpl.campos || []).filter((x) => x.tipo === "foto") };
     desenhar(ctx, semTextos, imgs, estado, {});
     const blob = await new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error("Falha ao exportar."))), "image/png"));
     const W = tpl.largura, H = tpl.altura;
@@ -235,8 +288,13 @@
         y: campo.y - px * 0.04 / H, papel: campo.rotulo || "texto",
       };
     });
-    return { blob, textos };
+    const imagens = (tpl.campos || []).filter((x) => (x.tipo === "imagem" || x.tipo === "logo") && x.url).map((campo) => ({
+      src: campo.url, nome: campo.rotulo || (campo.tipo === "logo" ? "Logo" : "Elemento"), tipo: campo.tipo === "logo" ? "imagem" : "icone",
+      x: campo.x, y: campo.y, largura: campo.w || 0.2, proporcao: campo.proporcao || 1,
+      opacidade: campo.opacidade == null ? 1 : Number(campo.opacidade), cor: campo.cor || null,
+    }));
+    return { blob, textos, imagens };
   }
 
-  window.CriaDigiModelo = { carregar, desenhar, exportar, ajustarTexto, separar };
+  window.CriaDigiModelo = { carregar, desenhar, exportar, ajustarTexto, separar, aoCarregar, precarregar, alturaImagem };
 })();
