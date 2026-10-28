@@ -376,6 +376,7 @@
             <span class="tpl-meta">${esc(t.categoria || "Geral")} · ${t.largura}×${t.altura} · ${(t.campos || []).length} campo(s)</span>
             <span class="arq-acoes">
               <button type="button" class="btn btn-sm btn-primario" data-t="editar">Editar</button>
+              <button type="button" class="btn btn-sm btn-ghost" data-t="duplicar" title="Criar um template novo a partir deste">Duplicar</button>
               <label class="interruptor"><input type="checkbox" data-t="ativo" ${t.ativo !== false ? "checked" : ""}> Ativo</label>
               <button type="button" class="btn btn-sm btn-perigo" data-t="apagar">Apagar</button>
             </span>
@@ -443,6 +444,35 @@
         if (!b) return;
         const t = S.templatesAdmin.find((x) => x.id === b.closest("[data-id]").dataset.id);
         if (b.dataset.t === "editar") abrirEditorTemplate(JSON.parse(JSON.stringify(t)), false);
+        if (b.dataset.t === "duplicar") {
+          const rotulo = b.textContent;
+          b.disabled = true; b.textContent = "Duplicando…";
+          try {
+            // copia também as imagens: apagar um template não pode quebrar o outro
+            const copiar = async (url, nome) => {
+              if (!url) return { caminho: null, url: null };
+              const r = await fetch(url);
+              if (!r.ok) throw new Error("Não consegui copiar a imagem do template.");
+              const blob = await r.blob();
+              const ext = (blob.type.split("/")[1] || "png").replace("jpeg", "jpg");
+              return API.enviarArteTemplate(new File([blob], `${nome}.${ext}`, { type: blob.type || "image/png" }));
+            };
+            const base = await copiar(t.base_url, "fundo");
+            const sobre = await copiar(t.sobre_url, "moldura");
+            const nomes = new Set(S.templatesAdmin.map((x) => x.nome));
+            let nome = `Cópia de ${t.nome}`, n = 2;
+            while (nomes.has(nome)) nome = `Cópia de ${t.nome} (${n++})`;
+            abrirEditorTemplate({
+              ...JSON.parse(JSON.stringify(t)), id: null, nome, ativo: false,
+              base_caminho: base.caminho, base_url: base.url, sobre_caminho: sobre.caminho, sobre_url: sobre.url,
+              campos: (t.campos || []).map((c) => ({ ...JSON.parse(JSON.stringify(c)), id: window.CriaDigi.uid() })),
+              ordem: (S.templatesAdmin.at(-1)?.ordem || 0) + 1,
+            }, true);
+            toast("Cópia criada (inativa). Ajuste o que quiser, troque a arte se precisar e clique em Salvar template.", "ok", 7000);
+          } catch (e) {
+            toast(e.message, "erro", 7000);
+          } finally { b.disabled = false; b.textContent = rotulo; }
+        }
         if (b.dataset.t === "apagar") {
           if (!confirm(`Apagar o template "${t.nome}"? Não dá para desfazer.`)) return;
           if (await salvarComAviso(() => API.apagarTemplate(t), "Template apagado.")) {
