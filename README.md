@@ -180,7 +180,13 @@ python3 -m http.server 8000
 - Brilho, contraste, saturação, temperatura, filtro da marca e degradê para texto.
 - Textos com fontes e cores da marca, arrastáveis; logo padrão aplicada sozinha. Espaçamento entre linhas ajustável.
 - **Elementos (ícones e imagens):** na aba Elementos do editor, envie PNG, SVG, JPG ou WebP (ou cole com Ctrl+V). Cada um vira uma camada que dá para mover, redimensionar pela alça do canto, mudar a opacidade, recolorir com as cores da marca (ícones) e trazer para frente ou enviar para trás. Funciona com seleção múltipla, alinhamento, guias, copiar/colar, desfazer e versões. Com login, os envios ficam em "Meus envios"; os aprovados pelo admin aparecem para todos em "Da marca".
-- **Copiar e colar:** Ctrl+C, Ctrl+X e Ctrl+V nos textos e na logo, também de uma arte para outra (ou pelos botões Copiar, Colar e Duplicar na aba Texto). Ctrl+D duplica. Texto copiado de fora (e-mail, documento) vira uma camada nova; imagem colada fora do editor ou no chat vira a imagem de partida.
+- **Arte em branco:** botão "+ Arte em branco" acima dos resultados: escolha o formato e a cor de fundo e monte a peça do zero com formas, textos, ícones e a logo.
+- **Formas** (aba Formas): retângulo, retângulo arredondado, círculo, triângulo, estrela, polígono, coração, balão Digi e seta. Cada forma tem preenchimento e contorno (cores da marca, sem cor ou qualquer outra cor), espessura, traço contínuo, tracejado ou pontilhado, cantos arredondados, número de lados (polígono), pontas e profundidade (estrela) e opacidade.
+- **Linhas e desenho:** linha, linha tracejada, seta e seta dupla (pontas: nenhuma, seta, dupla ou pontos) e **desenho à mão livre** com pincel (cor e espessura); cada traço vira uma camada.
+- **Girar, espelhar e sombra:** formas e imagens têm alça de girar (encaixa em 0°, 45° e 90°; Shift gira de 15 em 15°), campo de ângulo, girar 90°, espelhar na horizontal e na vertical e sombra. A alça do canto muda o tamanho: formas mudam livre (Shift mantém a proporção) e imagens mantêm a proporção.
+- **Camadas** (aba Camadas): lista de tudo o que está na arte, de frente para trás. Clique para selecionar, ▲/▼ para mudar a ordem (elementos podem ficar na frente ou atrás dos textos), olho para esconder e cadeado para travar. "Trazer para frente" coloca o elemento acima de tudo, inclusive dos textos.
+- **Efeitos no texto:** contorno das letras (cor e espessura) e sombra.
+- **Copiar e colar:** Ctrl+C, Ctrl+X e Ctrl+V nos textos, formas, elementos e na logo, também de uma arte para outra (ou pelos botões Copiar, Colar e Duplicar na aba Texto). Ctrl+D duplica. Texto copiado de fora (e-mail, documento) vira uma camada nova; imagem colada fora do editor ou no chat vira a imagem de partida.
 - **Vários itens de uma vez:** Shift + clique (na arte ou na lista), arrastar numa área vazia ou Ctrl+A. Mover, trocar fonte, peso, cor, fundo, tamanho (proporcional) e alinhamento valem para todos; botões para alinhar os itens entre si (ou na arte, com um só).
 - **Alinhamento automático:** ao arrastar, o item encaixa nas bordas e centros da arte, dos outros itens e das guias, e aparece uma linha pink mostrando o alinhamento (Alt solta livre; Shift trava na horizontal/vertical). Setas movem 1 px, Shift + setas 10 px.
 - **Guias:** botão de guias no topo do editor: guias verticais, horizontais e de margem (5%), arrastáveis; arraste para fora da arte para apagar. Só aparecem para quem edita, nunca na imagem baixada, e ficam salvas no navegador.
@@ -226,7 +232,7 @@ criadigi/
 ├── index.html                         criação + editor (login opcional)
 ├── admin.html                         manual de marca (só admins)
 ├── favicon.svg                        bolinha pink (o site anima pelo JavaScript)
-├── og.jpg                             imagem de compartilhamento (WhatsApp, LinkedIn, Slack), 1200×630
+├── og-v2.jpg                          imagem de compartilhamento (WhatsApp, LinkedIn, Slack), 1200×630
 ├── logo-rosa.png                      (copiar do repositório do Pauta)
 ├── assets/
 │   ├── css/styles.css                 identidade Digi, tema claro e escuro

@@ -303,7 +303,7 @@
 
     // garante que todas as camadas de imagem estejam carregadas (antes de exportar fora da tela)
     async precarregar() {
-      await Promise.all(this.imagens.map(async (m) => {
+      await Promise.all(this.imagens.filter((m) => m.src).map(async (m) => {
         const c = this.cacheImgs.get(m.src);
         if (c && c.pronto) return;
         try { const img = await window.CriaDigi.carregarImagem(m.src); this.cacheImgs.set(m.src, { img, pronto: true }); } catch (_) { /* segue sem ela */ }
@@ -315,20 +315,123 @@
       const sel = this.imagensSelecionadas();
       if (!sel.length) return;
       const resto = this.imagens.filter((m) => !sel.includes(m));
+      // "para frente" coloca acima de tudo, inclusive dos textos; "para trás" volta para baixo de tudo
+      for (const m of sel) m.sobreTextos = direcao === "frente";
       this.imagens = direcao === "frente" ? [...resto, ...sel] : [...sel, ...resto];
       this.marcar(); this.desenhar();
     }
 
-    _desenharImagem(ctx, m, W, H) {
+    // geometria de um elemento (imagem ou forma): centro, tamanho e giro
+    _geo(m, W = this.out.w, H = this.out.h) {
       const w = m.largura * W, h = w * (m.proporcao || 1);
-      const x0 = m.x * W, y0 = m.y * H;
-      m._caixa = { x0, y0, x1: x0 + w, y1: y0 + h };
-      const img = this._imagemDe(m.src);
-      if (!img) return;
+      return { w, h, cx: m.x * W + w / 2, cy: m.y * H + h / 2, ang: (m.rotacao || 0) * Math.PI / 180 };
+    }
+    // ponto da tela -> coordenadas locais do elemento (centro = 0,0, sem giro)
+    _local(m, p) {
+      const g = m._geo || this._geo(m);
+      const dx = p.x - g.cx, dy = p.y - g.cy, c = Math.cos(-g.ang), s = Math.sin(-g.ang);
+      return { x: dx * c - dy * s, y: dx * s + dy * c, g };
+    }
+    _dentro(m, p, folga = 0) {
+      const l = this._local(m, p);
+      return Math.abs(l.x) <= l.g.w / 2 + folga && Math.abs(l.y) <= l.g.h / 2 + folga;
+    }
+
+    _desenharImagem(ctx, m, W, H) {
+      const g = this._geo(m, W, H);
+      m._geo = g;
+      // caixa alinhada aos eixos (para alinhar, guias e seleção em grupo)
+      const c = Math.abs(Math.cos(g.ang)), s = Math.abs(Math.sin(g.ang));
+      const bw = g.w * c + g.h * s, bh = g.w * s + g.h * c;
+      m._caixa = m.oculto ? null : { x0: g.cx - bw / 2, y0: g.cy - bh / 2, x1: g.cx + bw / 2, y1: g.cy + bh / 2 };
+      if (m.oculto) return;
+      let img = null;
+      if (m.tipo !== "forma") { img = this._imagemDe(m.src); if (!img) return; }
       ctx.save();
+      ctx.translate(g.cx, g.cy);
+      if (g.ang) ctx.rotate(g.ang);
+      if (m.espelharH || m.espelharV) ctx.scale(m.espelharH ? -1 : 1, m.espelharV ? -1 : 1);
       ctx.globalAlpha = m.opacidade == null ? 1 : m.opacidade;
-      ctx.drawImage(m.cor ? this._tinta(m.src, img, m.cor) : img, x0, y0, w, h);
+      if (m.sombra) {
+        const sw = Math.min(W, H);
+        ctx.shadowColor = "rgba(20,20,22,.35)"; ctx.shadowBlur = sw * 0.025; ctx.shadowOffsetY = sw * 0.01;
+      }
+      if (m.tipo === "forma") desenharForma(ctx, m, g.w, g.h, W);
+      else ctx.drawImage(m.cor ? this._tinta(m.src, img, m.cor) : img, -g.w / 2, -g.h / 2, g.w, g.h);
       ctx.restore();
+    }
+
+    // ---- formas e traços
+    adicionarForma(forma, opcoes = {}) {
+      const W = this.out.w, H = this.out.h;
+      const ehLinha = forma === "linha";
+      const quadrada = ["elipse", "estrela", "poligono", "coracao", "balao", "triangulo"].includes(forma);
+      const lw = opcoes.largura || (ehLinha ? 0.4 : quadrada ? 0.25 : 0.32);
+      const hPx = ehLinha ? Math.max(W * 0.03, 16) : quadrada ? lw * W : lw * W * 0.6;
+      const m = {
+        id: window.CriaDigi.uid(), tipo: "forma", forma, nome: opcoes.nome || NOMES_FORMA[forma] || "Forma",
+        x: 0.5 - lw / 2, y: 0.5 - hPx / H / 2, largura: lw, proporcao: hPx / (lw * W),
+        preenchimento: ehLinha ? null : (opcoes.preenchimento !== undefined ? opcoes.preenchimento : "#EA0356"),
+        contorno: ehLinha ? (opcoes.contorno || "#232323") : (opcoes.contorno || null),
+        espessura: opcoes.espessura != null ? opcoes.espessura : ehLinha ? 0.6 : 0.5,   // % da largura da arte
+        traco: "solido", raio: forma === "arredondado" ? 0.35 : 0, lados: 6, pontas: forma === "estrela" ? 5 : 5,
+        pontaLinha: opcoes.pontaLinha || "nenhuma", opacidade: 1, rotacao: 0, ...opcoes.extra,
+      };
+      if (forma === "arredondado") m.forma = "retangulo";
+      // formas novas em cascata, para não ficarem uma exatamente em cima da outra
+      let n = 0;
+      while (n < 12 && this.imagens.some((o) => Math.abs(o.x - m.x) < 0.005 && Math.abs(o.y - m.y) < 0.005)) { m.x += 0.03; m.y += 0.03; n++; }
+      this.imagens.push(m);
+      this.marcar();
+      this.selecionar(m.id);
+      return m;
+    }
+
+    // desenho à mão livre: ativa/desativa o pincel
+    definirPincel(ativo, opcoes = {}) {
+      this.pincel = { cor: "#EA0356", espessura: 0.8, ...(this.pincel || {}), ...opcoes };
+      this.modo = ativo ? "desenhar" : "editar";
+      this._traco = null;
+      this.cv.style.cursor = ativo ? "crosshair" : "default";
+      if (ativo) this.selecionar(null);
+      this.desenhar();
+    }
+
+    // camadas: mostrar/ocultar e bloquear
+    alternar(id, campo) {
+      const alvo = id === "logo" ? null : (this.textos.find((t) => t.id === id) || this.imagens.find((m) => m.id === id));
+      if (!alvo) return;
+      alvo[campo] = !alvo[campo];
+      if (alvo[campo]) this.sels = this.sels.filter((x) => x !== id);
+      this.marcar(); this.desenhar(); this.aoSelecionar(this.sel);
+    }
+    // move um item uma posição (frente = mais para cima). Elementos passam por cima dos textos
+    // quando sobem além do topo do grupo de baixo, e voltam para baixo deles ao descer.
+    moverCamada(id, direcao) {
+      const frente = direcao === "frente";
+      const ti = this.textos.findIndex((t) => t.id === id);
+      if (ti >= 0) {
+        const tj = frente ? ti + 1 : ti - 1;
+        if (tj < 0 || tj >= this.textos.length) return;
+        [this.textos[ti], this.textos[tj]] = [this.textos[tj], this.textos[ti]];
+        this.marcar(); this.desenhar(); this.aoSelecionar(this.sel);
+        return;
+      }
+      const m = this.imagens.find((x) => x.id === id);
+      if (!m) return;
+      const grupo = this.imagens.filter((x) => !!x.sobreTextos === !!m.sobreTextos);
+      const gi = grupo.indexOf(m), gj = frente ? gi + 1 : gi - 1;
+      if (gj >= 0 && gj < grupo.length) {
+        const a = this.imagens.indexOf(m), b = this.imagens.indexOf(grupo[gj]);
+        [this.imagens[a], this.imagens[b]] = [this.imagens[b], this.imagens[a]];
+      } else if (frente && !m.sobreTextos) {
+        m.sobreTextos = true;                       // passa por cima dos textos, como o mais de baixo desse grupo
+        this.imagens = [m, ...this.imagens.filter((x) => x !== m)];
+      } else if (!frente && m.sobreTextos) {
+        m.sobreTextos = false;                      // volta para baixo dos textos, como o mais de cima
+        this.imagens = [...this.imagens.filter((x) => x !== m), m];
+      } else return;
+      this.marcar(); this.desenhar(); this.aoSelecionar(this.sel);
     }
 
     // recolore a imagem mantendo o desenho (alfa): útil para ícones
@@ -366,7 +469,7 @@
     copiarSelecionados() {
       const textos = this.textosSelecionados().map((t) => { const { _caixa, id, ...resto } = t; return JSON.parse(JSON.stringify(resto)); });
       const logo = this.sels.includes("logo") && this.logo.id ? (({ _caixa, ...l }) => ({ ...l }))(this.logo) : null;
-      const imagens = this.imagensSelecionadas().map((m) => { const { _caixa, id, ...resto } = m; return { ...resto }; });
+      const imagens = this.imagensSelecionadas().map((m) => { const { _caixa, _geo, id, ...resto } = m; return JSON.parse(JSON.stringify(resto)); });
       if (!textos.length && !logo && !imagens.length) return null;
       return { textos, logo, imagens };
     }
@@ -383,10 +486,10 @@
         ids.push(novo.id);
       }
       for (const m of dados.imagens || []) {
-        if (!m.src) continue;
+        if (!m.src && m.tipo !== "forma") continue;
         const nova = { ...m, id: window.CriaDigi.uid(), x: Math.min(0.95, (m.x || 0) + d), y: Math.min(0.95, (m.y || 0) + d) };
         this.imagens.push(nova);
-        this._imagemDe(nova.src);
+        if (nova.src) this._imagemDe(nova.src);
         ids.push(nova.id);
       }
       // a logo é uma só por arte: colar traz a logo copiada (posição e tamanho)
@@ -402,7 +505,8 @@
     zerarColagens() { this._colagens = 0; }
 
     selecionarTudo() {
-      const ids = [...this.imagens.map((m) => m.id), ...this.textos.map((t) => t.id)];
+      const livre = (x) => !x.oculto && !x.bloqueado;
+      const ids = [...this.imagens.filter(livre).map((m) => m.id), ...this.textos.filter(livre).map((t) => t.id)];
       if (this.logo.id && this.logos.get(this.logo.id)) ids.push("logo");
       this.selecionar(ids);
     }
@@ -555,9 +659,10 @@
       if (this._baseSuja || this.baseCache.width !== W || this.baseCache.height !== H) this._montarBase(W, H);
       ctx.clearRect(0, 0, W, H);
       ctx.drawImage(this.baseCache, 0, 0);
-      for (const m of this.imagens) this._desenharImagem(ctx, m, W, H);
+      for (const m of this.imagens) if (!m.sobreTextos) this._desenharImagem(ctx, m, W, H);
       this._desenharLogo(ctx, W, H, comUI);
       for (const t of this.textos) this._desenharTexto(ctx, t, W, H, comUI);
+      for (const m of this.imagens) if (m.sobreTextos) this._desenharImagem(ctx, m, W, H);
       if (comUI) this._desenharUI(ctx, W, H);
     }
 
@@ -582,6 +687,16 @@
       }
       // seleção
       for (const id of this.sels) {
+        const m = this.imagens.find((x) => x.id === id);
+        if (m && m._geo && !m.oculto) {
+          const g = m._geo, pr = id === this.sel || this.sels.length === 1;
+          ctx.save(); ctx.translate(g.cx, g.cy); ctx.rotate(g.ang);
+          ctx.strokeStyle = m.bloqueado ? "#9A9C9E" : "#EA0356"; ctx.lineWidth = (pr ? 2 : 1.5) * k;
+          ctx.setLineDash(pr ? [6 * k, 4 * k] : [3 * k, 3 * k]);
+          ctx.strokeRect(-g.w / 2 - 4 * k, -g.h / 2 - 4 * k, g.w + 8 * k, g.h + 8 * k);
+          ctx.restore();
+          continue;
+        }
         const c = this._caixaDe(id);
         if (c) contorno(ctx, c, k, id === this.sel || this.sels.length === 1);
       }
@@ -597,6 +712,16 @@
       if (alca) {
         ctx.fillStyle = "#FFFFFF"; ctx.strokeStyle = "#EA0356"; ctx.lineWidth = 2 * k; ctx.setLineDash([]);
         ctx.beginPath(); ctx.arc(alca.x, alca.y, 7 * k, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        // alça de girar
+        ctx.lineWidth = 1.5 * k;
+        ctx.beginPath(); ctx.moveTo(alca.topo.x, alca.topo.y); ctx.lineTo(alca.giro.x, alca.giro.y); ctx.stroke();
+        ctx.beginPath(); ctx.arc(alca.giro.x, alca.giro.y, 7 * k, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.arc(alca.giro.x, alca.giro.y, 3 * k, 0.3, Math.PI * 1.6); ctx.stroke();
+      }
+      // traço do pincel em andamento
+      if (this._traco && this._traco.pts.length > 1) {
+        ctx.strokeStyle = this.pincel.cor; ctx.lineWidth = this.pincel.espessura / 100 * W; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.setLineDash([]);
+        caminhoLivre(ctx, this._traco.pts); ctx.stroke();
       }
       // linhas de alinhamento (só durante o arraste)
       ctx.strokeStyle = "#FF0066"; ctx.lineWidth = 1.5 * k; ctx.setLineDash([]);
@@ -695,6 +820,7 @@
     }
 
     _desenharTexto(ctx, t, W, H, comUI) {
+      if (t.oculto) { t._caixa = null; return; }
       const px = Math.max(6, W * t.tamanho / 100);
       ctx.save();
       ctx.globalAlpha = t.opacidade == null ? 1 : Math.max(0.05, Math.min(1, t.opacidade));
@@ -722,6 +848,15 @@
       }
       ctx.fillStyle = t.cor;
       ctx.textAlign = t.alinhar;
+      if (t.sombra) { ctx.shadowColor = "rgba(20,20,22,.45)"; ctx.shadowBlur = px * 0.18; ctx.shadowOffsetY = px * 0.06; }
+      if (t.contorno && t.contorno.cor && t.contorno.espessura > 0) {
+        ctx.save();
+        ctx.lineJoin = "round"; ctx.miterLimit = 2;
+        ctx.strokeStyle = t.contorno.cor; ctx.lineWidth = px * t.contorno.espessura;
+        linhas.forEach((l, i) => ctx.strokeText(l, ancoraX, y0 + i * lh + px * 0.04));
+        ctx.restore();
+        ctx.shadowColor = "transparent";
+      }
       linhas.forEach((l, i) => ctx.fillText(l, ancoraX, y0 + i * lh + px * 0.04));
       ctx.textAlign = "left";
       ctx.restore();
@@ -810,25 +945,50 @@
     }
 
     _acertar(p) {
+      const folga = 6 * (p.escala || this._px());
+      const elemento = (m) => !m.oculto && !m.bloqueado && m._geo && this._dentro(m, p, m.tipo === "forma" && m.forma === "linha" ? folga : 0);
+      for (let i = this.imagens.length - 1; i >= 0; i--) if (this.imagens[i].sobreTextos && elemento(this.imagens[i])) return this.imagens[i].id;
       for (let i = this.textos.length - 1; i >= 0; i--) {
-        const c = this.textos[i]._caixa;
-        if (c && p.x >= c.x0 && p.x <= c.x1 && p.y >= c.y0 && p.y <= c.y1) return this.textos[i].id;
+        const t = this.textos[i], c = t._caixa;
+        if (c && !t.bloqueado && p.x >= c.x0 && p.x <= c.x1 && p.y >= c.y0 && p.y <= c.y1) return t.id;
       }
       const cl = this.logo.id ? this.logo._caixa : null;
       if (cl && p.x >= cl.x0 && p.x <= cl.x1 && p.y >= cl.y0 && p.y <= cl.y1) return "logo";
-      for (let i = this.imagens.length - 1; i >= 0; i--) {
-        const c = this.imagens[i]._caixa;
-        if (c && p.x >= c.x0 && p.x <= c.x1 && p.y >= c.y0 && p.y <= c.y1) return this.imagens[i].id;
-      }
+      for (let i = this.imagens.length - 1; i >= 0; i--) if (!this.imagens[i].sobreTextos && elemento(this.imagens[i])) return this.imagens[i].id;
       return null;
     }
     // canto inferior direito da imagem selecionada (só quando é a única seleção)
     _alca() {
       if (this.sels.length !== 1) return null;
       const m = this.imagens.find((x) => x.id === this.sels[0]);
-      if (!m || !m._caixa) return null;
-      const k = this._px();
-      return { x: m._caixa.x1 + 4 * k, y: m._caixa.y1 + 4 * k, m };
+      if (!m || !m._geo || m.oculto || m.bloqueado) return null;
+      const k = this._px(), g = m._geo;
+      const mundo = (lx, ly) => ({ x: g.cx + lx * Math.cos(g.ang) - ly * Math.sin(g.ang), y: g.cy + lx * Math.sin(g.ang) + ly * Math.cos(g.ang) });
+      const t = mundo(g.w / 2 + 4 * k, g.h / 2 + 4 * k);
+      const r = mundo(0, -g.h / 2 - 26 * k);
+      const topo = mundo(0, -g.h / 2 - 4 * k);
+      return { x: t.x, y: t.y, m, giro: r, topo };
+    }
+
+    // o traço do pincel vira uma forma "desenho" (pontos guardados em fração da própria caixa)
+    _finalizarTraco() {
+      const t = this._traco; this._traco = null;
+      if (!t || t.pts.length < 2) { this.desenhar(); return; }
+      const W = this.out.w, H = this.out.h, e = this.pincel.espessura / 100 * W;
+      const xs = t.pts.map((q) => q.x), ys = t.pts.map((q) => q.y);
+      let x0 = Math.min(...xs) - e / 2, x1 = Math.max(...xs) + e / 2, y0 = Math.min(...ys) - e / 2, y1 = Math.max(...ys) + e / 2;
+      const w = Math.max(4, x1 - x0), h = Math.max(4, y1 - y0);
+      const pontos = simplificar(t.pts, Math.max(0.6, e * 0.15)).map((q) => [Math.round((q.x - x0) / w * 1000) / 1000, Math.round((q.y - y0) / h * 1000) / 1000]);
+      const m = {
+        id: window.CriaDigi.uid(), tipo: "forma", forma: "desenho", nome: "Desenho", pontos,
+        x: x0 / W, y: y0 / H, largura: w / W, proporcao: h / w, preenchimento: null,
+        contorno: this.pincel.cor, espessura: this.pincel.espessura, traco: "solido", opacidade: 1, rotacao: 0,
+        espessuraBase: w,     // espessura acompanha o tamanho quando a pessoa redimensiona o desenho
+      };
+      this.imagens.push(m);
+      this.marcar();
+      this.desenhar();
+      this.aoMudar();
     }
 
     _guiaEm(p) {
@@ -864,10 +1024,25 @@
           cv.setPointerCapture(ev.pointerId);
           return;
         }
+        if (this.modo === "desenhar") {
+          this._traco = { pts: [{ x: p.x, y: p.y }] };
+          arraste = { tipo: "pincel" };
+          cv.setPointerCapture(ev.pointerId);
+          return;
+        }
         const somar = ev.shiftKey || ev.ctrlKey || ev.metaKey;
         const alca = this._alca();
+        if (alca && Math.hypot(p.x - alca.giro.x, p.y - alca.giro.y) <= 14 * p.escala) {
+          arraste = { tipo: "girar", m: alca.m, moveu: false };
+          cv.setPointerCapture(ev.pointerId);
+          return;
+        }
         if (alca && Math.hypot(p.x - alca.x, p.y - alca.y) <= 14 * p.escala) {
-          arraste = { tipo: "tamanho", m: alca.m, x0: alca.m._caixa.x0, y0: alca.m._caixa.y0, moveu: false };
+          const g = alca.m._geo;
+          // canto fixo: o de cima à esquerda (no sistema do próprio elemento, já girado)
+          const ax = g.cx + (-g.w / 2) * Math.cos(g.ang) - (-g.h / 2) * Math.sin(g.ang);
+          const ay = g.cy + (-g.w / 2) * Math.sin(g.ang) + (-g.h / 2) * Math.cos(g.ang);
+          arraste = { tipo: "tamanho", m: alca.m, ax, ay, ang: g.ang, w0: g.w, h0: g.h, moveu: false };
           cv.setPointerCapture(ev.pointerId);
           return;
         }
@@ -900,7 +1075,9 @@
         if (!this.src) return;
         const p = this._ponto(ev);
         if (!arraste) {
+          if (this.modo === "desenhar") { cv.style.cursor = "crosshair"; return; }
           const alca = this.modo === "editar" && this._alca();
+          if (alca && Math.hypot(p.x - alca.giro.x, p.y - alca.giro.y) <= 14 * p.escala) { cv.style.cursor = "grab"; return; }
           if (alca && Math.hypot(p.x - alca.x, p.y - alca.y) <= 14 * p.escala) { cv.style.cursor = "nwse-resize"; return; }
           if (this.modo === "editar") {
             const g = !this._acertar(p) && this._guiaEm(p);
@@ -920,12 +1097,34 @@
             dx += aj.dx; dy += aj.dy;
           } else this._linhas = [];
           this._deslocar(arraste.ids, arraste.ini, dx, dy);
+        } else if (arraste.tipo === "pincel") {
+          const pts = this._traco.pts, ult = pts[pts.length - 1];
+          if (Math.hypot(p.x - ult.x, p.y - ult.y) >= 1.5 * p.escala) pts.push({ x: p.x, y: p.y });
+        } else if (arraste.tipo === "girar") {
+          const m = arraste.m, g = m._geo;
+          let a = Math.atan2(p.y - g.cy, p.x - g.cx) * 180 / Math.PI + 90;
+          a = ((a + 540) % 360) - 180;
+          if (ev.shiftKey) a = Math.round(a / 15) * 15;
+          else for (const alvo of [-180, -90, -45, 0, 45, 90, 180]) if (Math.abs(a - alvo) < 4) a = alvo;
+          m.rotacao = Math.round(a * 10) / 10;
+          arraste.moveu = true;
         } else if (arraste.tipo === "tamanho") {
-          // redimensiona mantendo a proporção, a partir do canto de cima à esquerda
-          const m = arraste.m;
-          const prop = m.proporcao || 1;
-          const w = Math.max(12 * p.escala, Math.max(p.x - arraste.x0, (p.y - arraste.y0) / prop));
-          m.largura = Math.min(3, w / W);
+          // redimensiona a partir do canto de cima à esquerda (que fica parado), já levando o giro em conta
+          const m = arraste.m, c = Math.cos(-arraste.ang), s = Math.sin(-arraste.ang);
+          const vx = p.x - arraste.ax, vy = p.y - arraste.ay;
+          let lw = vx * c - vy * s, lh = vx * s + vy * c;
+          const min = 10 * p.escala;
+          const ehLinha = m.tipo === "forma" && m.forma === "linha";
+          // imagens mantêm a proporção (Shift solta); formas são livres (Shift trava)
+          const travar = m.tipo === "forma" ? ev.shiftKey : !ev.shiftKey;
+          if (ehLinha) { lw = Math.max(min, lw); lh = arraste.h0; }
+          else if (travar) { const k = Math.max(lw / arraste.w0, lh / arraste.h0); lw = arraste.w0 * k; lh = arraste.h0 * k; }
+          lw = Math.max(min, lw); lh = Math.max(min, lh);
+          const ncx = arraste.ax + (lw / 2) * Math.cos(arraste.ang) - (lh / 2) * Math.sin(arraste.ang);
+          const ncy = arraste.ay + (lw / 2) * Math.sin(arraste.ang) + (lh / 2) * Math.cos(arraste.ang);
+          m.largura = Math.min(4, lw / W);
+          m.proporcao = lh / lw;
+          m.x = (ncx - lw / 2) / W; m.y = (ncy - lh / 2) / H;
           arraste.moveu = true;
         } else if (arraste.tipo === "guia") {
           const g = arraste.g;
@@ -947,7 +1146,8 @@
           const r = this._laco;
           const x0 = Math.min(r.x0, r.x1), x1 = Math.max(r.x0, r.x1), y0 = Math.min(r.y0, r.y1), y1 = Math.max(r.y0, r.y1);
           const dentro = (c) => c && c.x1 >= x0 && c.x0 <= x1 && c.y1 >= y0 && c.y0 <= y1;
-          const ids = [...this.imagens.filter((m) => dentro(m._caixa)).map((m) => m.id), ...this.textos.filter((t) => dentro(t._caixa)).map((t) => t.id)];
+          const livre = (x) => !x.oculto && !x.bloqueado;
+          const ids = [...this.imagens.filter((m) => livre(m) && dentro(m._caixa)).map((m) => m.id), ...this.textos.filter((t) => livre(t) && dentro(t._caixa)).map((t) => t.id)];
           if (this.logo.id && dentro(this.logo._caixa)) ids.push("logo");
           this.sels = [...new Set([...(arraste.somar ? arraste.base : []), ...ids])];
           this.sel = this.sels[this.sels.length - 1] || null;
@@ -964,7 +1164,8 @@
       const soltar = () => {
         if (!arraste) return;
         if (arraste.tipo === "itens" && arraste.moveu) { this.marcar(); this.aoSelecionar(this.sel); }
-        if (arraste.tipo === "tamanho" && arraste.moveu) { this.marcar(); this.aoSelecionar(this.sel); }
+        if ((arraste.tipo === "tamanho" || arraste.tipo === "girar") && arraste.moveu) { this.marcar(); this.aoSelecionar(this.sel); }
+        if (arraste.tipo === "pincel") this._finalizarTraco();
         if (arraste.tipo === "itens" && !arraste.moveu && arraste.isolar) this.selecionar(arraste.isolar);
         if (arraste.tipo === "guia") {
           // arrastou a guia para fora da arte: apaga
@@ -1040,6 +1241,121 @@
     ctx.arcTo(x, y, x + w, y, r);
     ctx.closePath();
   }
+  // ------------------------------------------------------------ formas
+  const NOMES_FORMA = {
+    retangulo: "Retângulo", arredondado: "Retângulo arredondado", elipse: "Círculo", triangulo: "Triângulo", estrela: "Estrela",
+    poligono: "Polígono", coracao: "Coração", balao: "Balão Digi", seta: "Seta", linha: "Linha", desenho: "Desenho",
+  };
+  // desenha a forma centrada em (0,0), com largura w e altura h
+  function desenharForma(ctx, m, w, h, W) {
+    const esp = Math.max(0, (m.espessura || 0) / 100 * W) * (m.forma === "desenho" && m.espessuraBase ? (w / m.espessuraBase) : 1);
+    const traco = (largura) => {
+      ctx.lineWidth = largura;
+      ctx.setLineDash(m.traco === "tracejado" ? [largura * 3, largura * 2] : m.traco === "pontilhado" ? [0.01, largura * 2] : []);
+      ctx.lineCap = m.traco === "pontilhado" ? "round" : (m.forma === "linha" || m.forma === "desenho" ? "round" : "butt");
+      ctx.lineJoin = "round";
+    };
+    const x = -w / 2, y = -h / 2;
+    ctx.beginPath();
+    switch (m.forma) {
+      case "retangulo": {
+        const r = Math.max(0, Math.min(1, m.raio || 0)) * Math.min(w, h) / 2;
+        if (r > 0) retArredondado(ctx, x, y, w, h, r); else ctx.rect(x, y, w, h);
+        break;
+      }
+      case "elipse": ctx.ellipse(0, 0, w / 2, h / 2, 0, 0, Math.PI * 2); break;
+      case "triangulo": ctx.moveTo(0, y); ctx.lineTo(w / 2, h / 2); ctx.lineTo(x, h / 2); ctx.closePath(); break;
+      case "poligono": {
+        const n = Math.max(3, Math.min(12, Math.round(m.lados || 6)));
+        for (let i = 0; i < n; i++) { const a = -Math.PI / 2 + i * 2 * Math.PI / n; ctx[i ? "lineTo" : "moveTo"](Math.cos(a) * w / 2, Math.sin(a) * h / 2); }
+        ctx.closePath(); break;
+      }
+      case "estrela": {
+        const n = Math.max(3, Math.min(16, Math.round(m.pontas || 5)));
+        const dentro = Math.max(0.15, Math.min(0.9, m.miolo || 0.45));
+        for (let i = 0; i < n * 2; i++) {
+          const a = -Math.PI / 2 + i * Math.PI / n, r = i % 2 ? dentro : 1;
+          ctx[i ? "lineTo" : "moveTo"](Math.cos(a) * w / 2 * r, Math.sin(a) * h / 2 * r);
+        }
+        ctx.closePath(); break;
+      }
+      case "coracao": {
+        ctx.moveTo(0, h * 0.5);
+        ctx.bezierCurveTo(-w * 0.62, h * 0.05, -w * 0.5, -h * 0.55, 0, -h * 0.2);
+        ctx.bezierCurveTo(w * 0.5, -h * 0.55, w * 0.62, h * 0.05, 0, h * 0.5);
+        ctx.closePath(); break;
+      }
+      case "balao": {
+        // balão Digi: cantos bem arredondados, menos o de baixo à esquerda (a "ponta")
+        const r = Math.min(w, h) * 0.5;
+        ctx.moveTo(x, y + r);
+        ctx.arcTo(x, y, x + r, y, r);
+        ctx.arcTo(x + w, y, x + w, y + r, r);
+        ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+        ctx.lineTo(x, y + h);
+        ctx.closePath(); break;
+      }
+      case "seta": {
+        const c = h * 0.32, cab = Math.min(w * 0.45, h * 0.9);
+        ctx.moveTo(x, -c); ctx.lineTo(w / 2 - cab, -c); ctx.lineTo(w / 2 - cab, y); ctx.lineTo(w / 2, 0);
+        ctx.lineTo(w / 2 - cab, h / 2); ctx.lineTo(w / 2 - cab, c); ctx.lineTo(x, c); ctx.closePath(); break;
+      }
+      case "linha": {
+        const e = Math.max(1, esp), cab = e * 3.2;
+        const iniSeta = m.pontaLinha === "seta-dupla", fimSeta = m.pontaLinha === "seta" || iniSeta;
+        ctx.moveTo(x + (iniSeta ? cab * 0.8 : 0), 0); ctx.lineTo(w / 2 - (fimSeta ? cab * 0.8 : 0), 0);
+        ctx.strokeStyle = m.contorno || m.preenchimento || "#232323";
+        traco(e); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = ctx.strokeStyle;
+        const ponta = (px, dir) => { ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px - dir * cab, -cab * 0.62); ctx.lineTo(px - dir * cab, cab * 0.62); ctx.closePath(); ctx.fill(); };
+        if (fimSeta) ponta(w / 2, 1);
+        if (iniSeta) ponta(x, -1);
+        if (m.pontaLinha === "ponto") { ctx.beginPath(); ctx.arc(w / 2, 0, e * 1.6, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.arc(x, 0, e * 1.6, 0, Math.PI * 2); ctx.fill(); }
+        return;
+      }
+      case "desenho": {
+        const pts = (m.pontos || []).map(([px, py]) => ({ x: x + px * w, y: y + py * h }));
+        caminhoLivre(ctx, pts);
+        ctx.strokeStyle = m.contorno || "#EA0356";
+        traco(Math.max(1, esp)); ctx.stroke();
+        return;
+      }
+      default: ctx.rect(x, y, w, h);
+    }
+    if (m.preenchimento) { ctx.fillStyle = m.preenchimento; ctx.fill(); }
+    if (m.contorno && esp > 0) {
+      ctx.shadowColor = "transparent";
+      ctx.strokeStyle = m.contorno; traco(esp); ctx.stroke();
+    }
+  }
+  // caminho suave passando pelos pontos (curvas entre os pontos médios)
+  function caminhoLivre(ctx, pts) {
+    if (!pts.length) return;
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    if (pts.length < 3) { for (const q of pts.slice(1)) ctx.lineTo(q.x, q.y); return; }
+    for (let i = 1; i < pts.length - 1; i++) {
+      const mx = (pts[i].x + pts[i + 1].x) / 2, my = (pts[i].y + pts[i + 1].y) / 2;
+      ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
+    }
+    const u = pts[pts.length - 1]; ctx.lineTo(u.x, u.y);
+  }
+  // reduz pontos muito próximos (Ramer-Douglas-Peucker)
+  function simplificar(pts, tol) {
+    if (pts.length < 3) return pts;
+    const dist = (p, a, b) => {
+      const dx = b.x - a.x, dy = b.y - a.y, l = dx * dx + dy * dy;
+      if (!l) return Math.hypot(p.x - a.x, p.y - a.y);
+      const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / l));
+      return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+    };
+    let max = 0, idx = 0;
+    for (let i = 1; i < pts.length - 1; i++) { const d = dist(pts[i], pts[0], pts[pts.length - 1]); if (d > max) { max = d; idx = i; } }
+    if (max <= tol) return [pts[0], pts[pts.length - 1]];
+    return [...simplificar(pts.slice(0, idx + 1), tol).slice(0, -1), ...simplificar(pts.slice(idx), tol)];
+  }
+
   // k = tamanho de 1 px da tela em pixels da imagem
   function contorno(ctx, c, k, principal = true) {
     ctx.save();

@@ -5,7 +5,7 @@
    ===================================================================== */
 (function () {
   "use strict";
-  const { selecaoEmLote, caixaLote, prepararAsset } = window.CriaDigi;
+  const { selecaoEmLote, caixaLote, prepararAsset, janela } = window.CriaDigi;
   const { API, FORMATOS, esc, $, $$, toast, carregarImagem, reduzirParaBase64,
     carregarFontes, arquivoParaDataURL, montarCabecalho, lum, abrirLogin, definirDominios, uid, Favicon } = window.CriaDigi;
   const { Editor, POSICOES } = window.CriaDigiEditor;
@@ -232,6 +232,7 @@
 
     $$("#palco-topo .aba").forEach((b) => b.addEventListener("click", () => mostrarAba(b.dataset.aba)));
 
+    $("#arte-branco").addEventListener("click", abrirArteEmBranco);
     $("#abrir-local").addEventListener("change", async (ev) => {
       const f = ev.target.files[0];
       if (!f) return;
@@ -769,6 +770,7 @@
   function fecharEditor(voltar = true) {
     if ($("#editor").hidden) return;
     if (ed.modo === "recorte") cancelarRecorte();
+    if (ed.modo === "desenhar") pararPincel();
     $("#editor").hidden = true;
     $("#palco-topo").hidden = false;
     painelDireito("opcoes");
@@ -1485,6 +1487,8 @@
     $$(".abas-ferr .aba").forEach((b) => { const on = b.dataset.ferr === nome; b.classList.toggle("on", on); b.setAttribute("aria-selected", on); });
     $$(".ferr").forEach((s) => { s.hidden = s.dataset.ferr !== nome; });
     if (nome === "exportar") atualizarResumoExport();
+    if (nome === "camadas") sincronizarCamadas();
+    if (nome !== "formas" && ed && ed.modo === "desenhar") pararPincel();
   }
 
   function swatches(container, { comNenhum = false, selecionada = null } = {}) {
@@ -1609,6 +1613,13 @@
     ligarDeslizador($("#tx-largura"), (v) => editarTexto({ largura: v / 100 }, false), (v) => v + "%");
     $("#tx-cores").addEventListener("click", (ev) => { const b = ev.target.closest(".amostra"); if (b) editarTexto({ cor: b.dataset.hex }); });
     $("#tx-fundos").addEventListener("click", (ev) => { const b = ev.target.closest(".amostra"); if (b) editarTexto({ fundo: b.dataset.hex || null }); });
+    swatches($("#tx-contornos"), { comNenhum: true });
+    $("#tx-contornos").addEventListener("click", (ev) => {
+      const b = ev.target.closest(".amostra");
+      if (b) editarTexto((t) => ({ contorno: b.dataset.hex ? { cor: b.dataset.hex, espessura: (t.contorno && t.contorno.espessura) || 0.08 } : null }));
+    });
+    ligarDeslizador($("#tx-contorno-esp"), (v) => editarTexto((t) => (t.contorno ? { contorno: { ...t.contorno, espessura: v / 100 } } : {}), false), (v) => v + "%");
+    $("#tx-sombra").addEventListener("change", (ev) => editarTexto({ sombra: ev.target.checked }));
     $("#tx-alinhar").addEventListener("click", (ev) => { const b = ev.target.closest("button"); if (b) editarTexto({ alinhar: b.dataset.al }); });
     $("#alinhar-itens").addEventListener("click", (ev) => {
       const b = ev.target.closest("[data-alinhar]");
@@ -1749,14 +1760,23 @@
     const soLogo = ed.sels.length === 1 && ed.sels[0] === "logo";
     const temTexto = ed.textosSelecionados().length > 0;
     const temImagem = ed.imagensSelecionadas().length > 0;
-    if (soLogo) mostrarFerr("logo");
+    const imgs = ed.imagensSelecionadas();
+    const soFormas = temImagem && imgs.every((m) => m.tipo === "forma");
+    const naCamadas = !$('.ferr[data-ferr="camadas"]').hidden;
+    if (naCamadas && sel) { /* fica na lista de camadas */ }
+    else if (soLogo) mostrarFerr("logo");
+    else if (soFormas && !temTexto) mostrarFerr("formas");
     else if (temImagem && !temTexto) mostrarFerr("elementos");
     else if (sel) mostrarFerr("texto");
-    // o bloco de alinhar/copiar/remover acompanha o painel aberto
-    const slot = temImagem && !temTexto ? $("#slot-alinhar-elementos") : $("#slot-alinhar-texto");
+    // os blocos de girar e de alinhar/copiar/remover acompanham o painel aberto
+    const painel = soFormas && !temTexto ? "formas" : temImagem && !temTexto ? "elementos" : "texto";
+    const slot = $("#slot-alinhar-" + painel);
     if ($("#alinhar-itens").parentElement !== slot) slot.appendChild($("#alinhar-itens"));
+    const slotT = $("#slot-transformar-" + (painel === "formas" ? "formas" : "elementos"));
+    if ($("#transformar").parentElement !== slotT) slotT.appendChild($("#transformar"));
     sincronizarTexto();
     sincronizarImagem();
+    sincronizarFormas();
     sincronizarFerramentas();
   }
 
@@ -1875,6 +1895,257 @@
     $("#im-cores").addEventListener("click", (ev) => { const b = ev.target.closest(".amostra"); if (b) editarImagem({ cor: b.dataset.hex || null }); });
     $$("[data-ordem]").forEach((b) => b.addEventListener("click", () => ed.ordenarImagem(b.dataset.ordem)));
     $('.abas-ferr [data-ferr="elementos"]').addEventListener("click", () => carregarBiblioteca());
+    montarFormas();
+    montarTransformar();
+    montarCamadas();
+  }
+
+  // ---------------------------------------------------------------- formas, linhas e desenho
+  const ICONES_FORMA = {
+    retangulo: '<rect x="3" y="6" width="18" height="12"/>',
+    arredondado: '<rect x="3" y="6" width="18" height="12" rx="4"/>',
+    elipse: '<circle cx="12" cy="12" r="8.5"/>',
+    triangulo: '<path d="M12 3.5 21 20H3z"/>',
+    estrela: '<path d="m12 3 2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 16.8 6.6 19.7l1.1-6.1-4.5-4.2 6.1-.8z"/>',
+    poligono: '<path d="M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z"/>',
+    coracao: '<path d="M12 20s-8-4.8-8-10.2A4.3 4.3 0 0 1 12 7a4.3 4.3 0 0 1 8 2.8C20 15.2 12 20 12 20z"/>',
+    balao: '<path d="M3 21V11a8 8 0 0 1 8-8h2a8 8 0 0 1 0 16H3z"/>',
+    seta: '<path d="M3 9.5h11V5l7 7-7 7v-4.5H3z"/>',
+  };
+  const ICONES_LINHA = {
+    linha: '<path d="M3 12h18" fill="none" stroke-width="2.2"/>',
+    tracejada: '<path d="M3 12h18" fill="none" stroke-width="2.2" stroke-dasharray="3.5 2.5"/>',
+    seta: '<path d="M3 12h15" fill="none" stroke-width="2.2"/><path d="M21 12l-5-3.5v7z"/>',
+    dupla: '<path d="M6 12h12" fill="none" stroke-width="2.2"/><path d="M21 12l-5-3.5v7zM3 12l5-3.5v7z"/>',
+    pincel: '<path d="M4 18c3-6 5-9 7-9s1 6 3 6 3-6 6-9" fill="none" stroke-width="2.2" stroke-linecap="round"/>',
+  };
+  const NOMES_BOTAO = {
+    retangulo: "Retângulo", arredondado: "Retângulo arredondado", elipse: "Círculo", triangulo: "Triângulo", estrela: "Estrela",
+    poligono: "Polígono", coracao: "Coração", balao: "Balão Digi", seta: "Seta (forma)",
+    linha: "Linha", tracejada: "Linha tracejada", "linha-seta": "Seta", dupla: "Seta dupla", pincel: "Desenhar à mão livre",
+  };
+  function botaoForma(chave, svg, attr) {
+    return `<button type="button" class="botao-forma" ${attr}="${chave}" title="${esc(NOMES_BOTAO[chave] || chave)}" aria-label="${esc(NOMES_BOTAO[chave] || chave)}">
+      <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" stroke="currentColor" stroke-width="0" stroke-linejoin="round">${svg}</svg></button>`;
+  }
+  const formasSelecionadas = () => ed.imagensSelecionadas().filter((m) => m.tipo === "forma");
+  function editarForma(patch, registrar = true) {
+    const lista = formasSelecionadas();
+    if (!lista.length) return;
+    for (const m of lista) Object.assign(m, typeof patch === "function" ? patch(m) : patch);
+    ed.desenhar();
+    if (registrar) ed.marcar();
+    sincronizarFormas();
+  }
+  function pararPincel() {
+    ed.definirPincel(false);
+    $("#props-pincel").hidden = true;
+    $$("[data-linha='pincel']").forEach((b) => b.classList.remove("on"));
+  }
+  function montarFormas() {
+    $("#grade-formas").innerHTML = Object.entries(ICONES_FORMA).map(([k, v]) => botaoForma(k, v, "data-forma")).join("");
+    $("#grade-linhas").innerHTML = [["linha", ICONES_LINHA.linha], ["tracejada", ICONES_LINHA.tracejada], ["linha-seta", ICONES_LINHA.seta], ["dupla", ICONES_LINHA.dupla], ["pincel", ICONES_LINHA.pincel]]
+      .map(([k, v]) => botaoForma(k, v, "data-linha")).join("");
+    $("#grade-formas").addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-forma]");
+      if (!b || !ed.temImagem) return;
+      if (ed.modo === "desenhar") pararPincel();
+      ed.adicionarForma(b.dataset.forma, { nome: NOMES_BOTAO[b.dataset.forma] });
+    });
+    $("#grade-linhas").addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-linha]");
+      if (!b || !ed.temImagem) return;
+      const k = b.dataset.linha;
+      if (k === "pincel") {
+        const ativo = ed.modo !== "desenhar";
+        if (!ativo) return pararPincel();
+        if (ed.modo === "recorte") cancelarRecorte();
+        ed.definirPincel(true);
+        b.classList.add("on");
+        $("#props-pincel").hidden = false;
+        marcarSwatch($("#pn-cores"), ed.pincel.cor);
+        $("#pn-espessura").value = ed.pincel.espessura; $("#pn-espessura").previousElementSibling.value = ed.pincel.espessura.toFixed(2) + "%";
+        return;
+      }
+      if (ed.modo === "desenhar") pararPincel();
+      const extra = k === "tracejada" ? { traco: "tracejado" } : {};
+      ed.adicionarForma("linha", { nome: NOMES_BOTAO[k], pontaLinha: k === "linha-seta" ? "seta" : k === "dupla" ? "seta-dupla" : "nenhuma", extra });
+    });
+    // pincel
+    swatches($("#pn-cores"));
+    $("#pn-cores").addEventListener("click", (ev) => { const b = ev.target.closest(".amostra"); if (b) { ed.definirPincel(true, { cor: b.dataset.hex }); marcarSwatch($("#pn-cores"), b.dataset.hex); } });
+    $("#pn-espessura").addEventListener("input", () => {
+      const v = Number($("#pn-espessura").value);
+      $("#pn-espessura").previousElementSibling.value = v.toFixed(2) + "%";
+      ed.pincel = { ...ed.pincel, espessura: v };
+    });
+    $("#pn-concluir").addEventListener("click", pararPincel);
+    // propriedades
+    swatches($("#fm-preench"), { comNenhum: true });
+    swatches($("#fm-contorno"), { comNenhum: true });
+    $("#fm-preench").addEventListener("click", (ev) => { const b = ev.target.closest(".amostra"); if (b) editarForma({ preenchimento: b.dataset.hex || null }); });
+    $("#fm-contorno").addEventListener("click", (ev) => {
+      const b = ev.target.closest(".amostra");
+      if (b) editarForma((m) => ({ contorno: b.dataset.hex || null, espessura: b.dataset.hex && !m.espessura ? 0.5 : m.espessura }));
+    });
+    $("#fm-preench-livre").addEventListener("input", (ev) => editarForma({ preenchimento: ev.target.value }, false));
+    $("#fm-preench-livre").addEventListener("change", () => ed.marcar());
+    $("#fm-contorno-livre").addEventListener("input", (ev) => editarForma((m) => ({ contorno: ev.target.value, espessura: m.espessura || 0.5 }), false));
+    $("#fm-contorno-livre").addEventListener("change", () => ed.marcar());
+    ligarDeslizador($("#fm-espessura"), (v) => editarForma({ espessura: v }, false), (v) => v.toFixed(2) + "%");
+    ligarDeslizador($("#fm-raio"), (v) => editarForma({ raio: v / 100 }, false), (v) => v + "%");
+    ligarDeslizador($("#fm-lados"), (v) => editarForma({ lados: v }, false));
+    ligarDeslizador($("#fm-pontas"), (v) => editarForma({ pontas: v }, false));
+    ligarDeslizador($("#fm-miolo"), (v) => editarForma({ miolo: v / 100 }, false), (v) => v + "%");
+    ligarDeslizador($("#fm-opacidade"), (v) => editarForma({ opacidade: v / 100 }, false), (v) => v + "%");
+    $("#fm-traco").addEventListener("click", (ev) => { const b = ev.target.closest("[data-traco]"); if (b) editarForma((m) => ({ traco: b.dataset.traco, espessura: m.espessura || 0.5, contorno: m.contorno || (m.forma === "linha" ? "#232323" : m.preenchimento ? "#232323" : "#EA0356") })); });
+    $("#fm-ponta").addEventListener("click", (ev) => { const b = ev.target.closest("[data-ponta]"); if (b) editarForma({ pontaLinha: b.dataset.ponta }); });
+  }
+  function sincronizarFormas() {
+    const lista = formasSelecionadas();
+    $("#props-forma").hidden = !lista.length;
+    if (!lista.length) return;
+    const m = lista.find((x) => x.id === ed.sel) || lista[0];
+    const ehLinha = m.forma === "linha", ehDesenho = m.forma === "desenho";
+    $("#fm-rotulo").textContent = lista.length > 1 ? `${lista.length} formas selecionadas` : (m.nome || "Forma");
+    $("#fm-preench-wrap").hidden = ehLinha || ehDesenho;
+    $("#fm-contorno-rotulo").textContent = ehLinha || ehDesenho ? "Cor do traço" : "Contorno";
+    marcarSwatch($("#fm-preench"), m.preenchimento || "");
+    marcarSwatch($("#fm-contorno"), m.contorno || "");
+    const hex = (c) => (/^#[0-9a-f]{6}$/i.test(c || "") ? c : "#EA0356");
+    if (document.activeElement !== $("#fm-preench-livre")) $("#fm-preench-livre").value = hex(m.preenchimento);
+    if (document.activeElement !== $("#fm-contorno-livre")) $("#fm-contorno-livre").value = hex(m.contorno);
+    const val = (id, v, txt) => { $(id).value = v; $(id).previousElementSibling.value = txt; };
+    val("#fm-espessura", m.espessura || 0, (m.espessura || 0).toFixed(2) + "%");
+    val("#fm-opacidade", Math.round((m.opacidade == null ? 1 : m.opacidade) * 100), Math.round((m.opacidade == null ? 1 : m.opacidade) * 100) + "%");
+    $$("button", $("#fm-traco")).forEach((b) => b.classList.toggle("on", b.dataset.traco === (m.traco || "solido")));
+    $("#fm-ponta-wrap").hidden = !ehLinha;
+    $$("button", $("#fm-ponta")).forEach((b) => b.classList.toggle("on", b.dataset.ponta === (m.pontaLinha || "nenhuma")));
+    $("#fm-raio-wrap").hidden = m.forma !== "retangulo";
+    val("#fm-raio", Math.round((m.raio || 0) * 100), Math.round((m.raio || 0) * 100) + "%");
+    $("#fm-lados-wrap").hidden = m.forma !== "poligono";
+    val("#fm-lados", m.lados || 6, String(m.lados || 6));
+    $("#fm-pontas-wrap").hidden = m.forma !== "estrela";
+    $("#fm-miolo-wrap").hidden = m.forma !== "estrela";
+    val("#fm-pontas", m.pontas || 5, String(m.pontas || 5));
+    val("#fm-miolo", Math.round((m.miolo || 0.45) * 100), Math.round((m.miolo || 0.45) * 100) + "%");
+    sincronizarTransformar();
+  }
+
+  // girar, espelhar e sombra (formas e imagens)
+  function montarTransformar() {
+    ligarDeslizador($("#tf-rotacao"), (v) => editarImagem({ rotacao: v }, false), (v) => v + "°");
+    $("#transformar").addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-tf]");
+      if (!b) return;
+      const acao = b.dataset.tf;
+      if (acao === "girar90") editarImagem((m) => ({ rotacao: ((((m.rotacao || 0) + 90) + 180) % 360) - 180 }));
+      else editarImagem((m) => ({ [acao]: !m[acao] }));
+      sincronizarTransformar();
+    });
+    $("#tf-sombra").addEventListener("change", (ev) => editarImagem({ sombra: ev.target.checked }));
+    $$("[data-ordem]").forEach((b) => b.addEventListener("click", () => { ed.ordenarImagem(b.dataset.ordem); sincronizarCamadas(); }));
+  }
+  function sincronizarTransformar() {
+    const lista = ed.imagensSelecionadas();
+    $("#transformar").hidden = !lista.length || ed.textosSelecionados().length > 0;
+    if (!lista.length) return;
+    const m = lista.find((x) => x.id === ed.sel) || lista[0];
+    const r = Math.round(m.rotacao || 0);
+    $("#tf-rotacao").value = r; $("#tf-rotacao").previousElementSibling.value = r + "°";
+    $("#tf-sombra").checked = !!m.sombra;
+    $$("[data-tf]").forEach((b) => b.classList.toggle("on", b.dataset.tf !== "girar90" && !!m[b.dataset.tf]));
+  }
+
+  // ---------------------------------------------------------------- camadas
+  function montarCamadas() {
+    $("#lista-camadas").addEventListener("click", (ev) => {
+      const linha = ev.target.closest("[data-camada]");
+      if (!linha) return;
+      const id = linha.dataset.camada;
+      const acao = ev.target.closest("[data-cam]");
+      if (acao) {
+        const a = acao.dataset.cam;
+        if (a === "oculto" || a === "bloqueado") ed.alternar(id, a);
+        else if (id === "logo" && a === "oculto") return;
+        else ed.moverCamada(id, a);
+        sincronizarCamadas();
+        return;
+      }
+      if (id === "fundo") return;
+      const item = ed.textos.find((t) => t.id === id) || ed.imagens.find((m) => m.id === id);
+      if (item && (item.oculto || item.bloqueado)) return toast(item.oculto ? "Mostre a camada (olho) para selecionar." : "Destrave a camada (cadeado) para selecionar.", "info");
+      if (ev.shiftKey || ev.ctrlKey || ev.metaKey) ed.selecionar(id, true); else ed.selecionar(id);
+    });
+    $("#lista-camadas").addEventListener("keydown", (ev) => { if (ev.key === "Enter" && ev.target.matches("[data-camada]")) ev.target.click(); });
+  }
+  const SVG_OLHO = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+  const SVG_OLHO_X = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4M6.6 6.6A17 17 0 0 0 2 12s3.6 7 10 7a9.6 9.6 0 0 0 5.4-1.6"/></svg>';
+  const SVG_CADEADO = (fechado) => `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="${fechado ? "M8 11V7a4 4 0 0 1 8 0v4" : "M8 11V7a4 4 0 0 1 7.5-2"}"/></svg>`;
+  function sincronizarCamadas() {
+    const box = $("#lista-camadas");
+    if (!box || !ed || $('.ferr[data-ferr="camadas"]').hidden) return;
+    const linhas = [];
+    const miniForma = (m) => {
+      const cor = m.preenchimento || m.contorno || "#9A9C9E";
+      const chave = m.forma === "retangulo" && m.raio ? "arredondado" : m.forma;
+      const svg = ICONES_FORMA[chave] || (m.forma === "linha" ? ICONES_LINHA.linha : ICONES_LINHA.pincel);
+      return `<svg viewBox="0 0 24 24" width="22" height="22" fill="${esc(cor)}" stroke="${esc(cor)}" stroke-width="0">${svg}</svg>`;
+    };
+    const el = (m, i, total) => ({
+      id: m.id, nome: m.nome || (m.tipo === "forma" ? "Forma" : "Imagem"), tipo: m.tipo === "forma" ? "Forma" : m.tipo === "icone" ? "Ícone" : "Imagem",
+      mini: m.tipo === "forma" ? miniForma(m) : `<img src="${esc(m.src)}" alt="">`, oculto: m.oculto, bloqueado: m.bloqueado, ordem: true,
+    });
+    const sobre = ed.imagens.filter((m) => m.sobreTextos), sob = ed.imagens.filter((m) => !m.sobreTextos);
+    [...sobre].reverse().forEach((m) => linhas.push(el(m)));
+    [...ed.textos].reverse().forEach((t) => linhas.push({ id: t.id, nome: (t.texto || "").split("\n")[0] || "(texto vazio)", tipo: "Texto", mini: `<span class="cam-tt">T</span>`, oculto: t.oculto, bloqueado: t.bloqueado, ordem: true }));
+    const lg = ed.logo.id ? logosAtivos().find((l) => String(l.id) === String(ed.logo.id)) : null;
+    if (lg) linhas.push({ id: "logo", nome: lg.nome || "Logo", tipo: "Logo", mini: `<img src="${esc(lg.url)}" alt="">`, fixo: true });
+    [...sob].reverse().forEach((m) => linhas.push(el(m)));
+    linhas.push({ id: "fundo", nome: "Imagem de fundo", tipo: "Fundo", mini: `<span class="cam-tt cam-fundo"></span>`, fixo: true, fundo: true });
+    box.innerHTML = linhas.map((c) => `
+      <div class="camada-linha ${ed.sels.includes(c.id) ? "on" : ""} ${c.oculto ? "oculta" : ""} ${c.fundo ? "fundo" : ""}" data-camada="${esc(c.id)}" tabindex="0" role="button">
+        <span class="cam-mini">${c.mini}</span>
+        <span class="cam-nome"><b>${esc(c.nome)}</b><small>${c.tipo}</small></span>
+        ${c.fixo ? "" : `
+        <span class="cam-acoes">
+          <button type="button" class="icone" data-cam="frente" title="Uma camada para frente" aria-label="Para frente">▲</button>
+          <button type="button" class="icone" data-cam="tras" title="Uma camada para trás" aria-label="Para trás">▼</button>
+          <button type="button" class="icone ${c.oculto ? "on" : ""}" data-cam="oculto" title="${c.oculto ? "Mostrar" : "Esconder"}" aria-label="${c.oculto ? "Mostrar" : "Esconder"}">${c.oculto ? SVG_OLHO_X : SVG_OLHO}</button>
+          <button type="button" class="icone ${c.bloqueado ? "on" : ""}" data-cam="bloqueado" title="${c.bloqueado ? "Destravar" : "Travar"}" aria-label="${c.bloqueado ? "Destravar" : "Travar"}">${SVG_CADEADO(c.bloqueado)}</button>
+        </span>`}
+      </div>`).join("");
+  }
+
+  // ---------------------------------------------------------------- arte em branco
+  function abrirArteEmBranco() {
+    const fmts = FORMATOS.slice(0, 12);
+    const cores = [{ nome: "Branco", hex: "#FFFFFF" }, ...S.cores.filter((c) => c.hex.toUpperCase() !== "#FFFFFF")];
+    let fmt = fmts[0], cor = "#FFFFFF";
+    const j = janela(`
+      <h2>Arte em branco</h2>
+      <p class="ajuda">Comece do zero com formas, textos, ícones e a logo da marca.</p>
+      <span class="rotulo">Formato</span>
+      <div class="lista-formatos lista-formatos-branco">${fmts.map((f, i) => `<button type="button" class="item-formato ${i ? "" : "on"}" data-fid="${f.id}"><span>${esc(f.nome)}</span><small>${f.w}×${f.h}</small></button>`).join("")}</div>
+      <span class="rotulo">Cor de fundo</span>
+      <div class="paleta" id="branco-cores">${cores.map((c, i) => `<button type="button" class="amostra ${i ? "" : "on"}" data-hex="${c.hex}" style="--c:${c.hex}" title="${esc(c.nome)}" aria-label="${esc(c.nome)}"></button>`).join("")}</div>
+      <div class="janela-acoes"><button type="button" class="btn btn-ghost" data-fechar>Cancelar</button><button type="button" class="btn btn-primario" id="branco-criar">Criar</button></div>`, { largura: 520 });
+    j.addEventListener("click", (ev) => {
+      if (ev.target.closest("[data-fechar]")) return j.close();
+      const f = ev.target.closest("[data-fid]");
+      if (f) { fmt = fmts.find((x) => x.id === f.dataset.fid); $$("[data-fid]", j).forEach((b) => b.classList.toggle("on", b === f)); }
+      const c = ev.target.closest("#branco-cores .amostra");
+      if (c) { cor = c.dataset.hex; marcarSwatch($("#branco-cores", j), cor); }
+    });
+    $("#branco-criar", j).addEventListener("click", () => {
+      const cv = document.createElement("canvas");
+      cv.width = fmt.w; cv.height = fmt.h;
+      const ctx = cv.getContext("2d");
+      ctx.fillStyle = cor; ctx.fillRect(0, 0, fmt.w, fmt.h);
+      const url = cv.toDataURL("image/png");
+      j.close();
+      abrirNoEditor({ id: "local-branco-" + Date.now(), url, formato: fmt, prompt: "Arte em branco", semIA: true }).then(() => mostrarFerr("formas"));
+    });
   }
 
   function sincronizarTexto() {
@@ -1914,6 +2185,10 @@
     $("#tx-opacidade").value = op; $("#tx-opacidade").previousElementSibling.value = op + "%";
     marcarSwatch($("#tx-cores"), t.cor);
     marcarSwatch($("#tx-fundos"), t.fundo || "");
+    marcarSwatch($("#tx-contornos"), t.contorno ? t.contorno.cor : "");
+    $("#tx-contorno-wrap").hidden = !t.contorno;
+    if (t.contorno) { const ce = Math.round(t.contorno.espessura * 100); $("#tx-contorno-esp").value = ce; $("#tx-contorno-esp").previousElementSibling.value = ce + "%"; }
+    $("#tx-sombra").checked = !!t.sombra;
     $$("button", $("#tx-alinhar")).forEach((b) => b.classList.toggle("on", b.dataset.al === t.alinhar));
   }
 
@@ -1963,6 +2238,7 @@
     $("#logo-tamanho").value = ed.logo.tamanho; $("#logo-tamanho").previousElementSibling.value = ed.logo.tamanho + "%";
     $("#props-logo").classList.toggle("apagado", !ed.logo.id);
     sincronizarTexto();
+    sincronizarCamadas();
     atualizarResumoExport();
   }
 
@@ -2053,7 +2329,8 @@
         ed.mover(setas[ev.key][0] * passo, setas[ev.key][1] * passo);
         sincronizarFerramentas();
       }
-      if (ev.key === "Escape" && ed.modo === "recorte") cancelarRecorte();
+      if (ev.key === "Escape" && ed.modo === "desenhar") pararPincel();
+      else if (ev.key === "Escape" && ed.modo === "recorte") cancelarRecorte();
       else if (ev.key === "Escape" && !digitando && ed.sels.length) ed.selecionar(null);
     });
   }
@@ -2078,15 +2355,16 @@
   const editorAberto = () => !$("#editor").hidden && ed && ed.temImagem && ed.modo === "editar";
   const digitandoAgora = () => /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "") || document.activeElement?.isContentEditable;
   const rotuloClip = (d) => {
-    const n = (d.textos || []).length + (d.logo ? 1 : 0);
-    return n === 1 ? (d.logo && !d.textos.length ? "Logo" : "Texto") : `${n} itens`;
+    const nI = (d.imagens || []).length;
+    const n = (d.textos || []).length + (d.logo ? 1 : 0) + nI;
+    return n === 1 ? (d.logo && !d.textos.length ? "Logo" : nI ? "Elemento" : "Texto") : `${n} itens`;
   };
   function copiar(recortar = false) {
     const dados = ed.copiarSelecionados();
     if (!dados) return null;
     gravarClip(dados);
     if (recortar) ed.removerSelecionado();
-    toast(`${rotuloClip(dados)} ${recortar ? "recortado" : "copiado"}${(dados.textos || []).length + (dados.logo ? 1 : 0) > 1 ? "s" : ""}. Cole com Ctrl+V, nesta ou em outra arte.`, "ok", 3000);
+    toast(`${rotuloClip(dados)} ${recortar ? "recortado" : "copiado"}${(dados.textos || []).length + (dados.logo ? 1 : 0) + (dados.imagens || []).length > 1 ? "s" : ""}. Cole com Ctrl+V, nesta ou em outra arte.`, "ok", 3000);
     return dados;
   }
   function colarDoClip() {

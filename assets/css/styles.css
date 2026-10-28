@@ -914,3 +914,40 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--r
 .menu-pop button.perigo { color: var(--rosa-escuro); }
 .linha-senha { display: flex; gap: 6px; align-items: center; }
 .linha-senha input { flex: 1; font-family: ui-monospace, Menlo, monospace; letter-spacing: .03em; }
+
+/* ---------- formas, camadas e arte em branco ---------- */
+.abas-ferr { grid-template-columns: repeat(4, 1fr); }
+.abas-ferr .aba { font-size: 12.5px; padding: 7px 2px; }
+.grade-formas { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 4px; }
+.botao-forma { display: grid; place-items: center; aspect-ratio: 1; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--surface); color: var(--ink); cursor: pointer; transition: border-color .15s, color .15s, background .15s; }
+.botao-forma:hover { border-color: var(--rosa); color: var(--rosa); }
+.botao-forma.on { border-color: var(--rosa); background: var(--rosa-fundo); color: var(--rosa); }
+.caixa-pincel { display: grid; gap: 8px; padding: 10px; border: 1px dashed var(--rosa); border-radius: 10px; background: var(--rosa-fundo); }
+#props-forma, #transformar { display: grid; gap: 8px; }
+#props-forma[hidden], #transformar[hidden], .caixa-pincel[hidden] { display: none; }
+.paleta-com-livre { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.cor-livre { position: relative; width: 26px; height: 26px; border-radius: 50%; cursor: pointer; overflow: hidden;
+  background: conic-gradient(#EA0356, #FFB800, #2ECC71, #2D9CDB, #9B51E0, #EA0356); box-shadow: inset 0 0 0 2px #fff, 0 0 0 1px var(--line-soft); }
+.cor-livre input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; border: 0; padding: 0; }
+[data-tf].on { border-color: var(--rosa); color: var(--rosa); background: var(--rosa-fundo); }
+.lista-camadas { display: grid; gap: 4px; }
+.camada-linha { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 8px; padding: 6px 6px 6px 6px; border: 1px solid var(--line-soft); border-radius: 10px; cursor: pointer; background: var(--surface); }
+.camada-linha:hover { border-color: var(--ink-faint); }
+.camada-linha.on { border-color: var(--rosa); background: var(--rosa-fundo); }
+.camada-linha.oculta .cam-mini, .camada-linha.oculta .cam-nome { opacity: .4; }
+.camada-linha.fundo { cursor: default; background: transparent; border-style: dashed; }
+.cam-mini { width: 34px; height: 34px; border-radius: 7px; display: grid; place-items: center; overflow: hidden;
+  background: repeating-conic-gradient(#eee 0 25%, #fff 0 50%) 0 0 / 10px 10px; }
+.cam-mini img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.cam-tt { font-weight: 800; font-size: 16px; color: var(--ink); }
+.cam-fundo { width: 100%; height: 100%; background: linear-gradient(135deg, #f3f3f3, #d9d9d9); }
+.cam-nome { min-width: 0; display: grid; line-height: 1.2; }
+.cam-nome b { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cam-nome small { font-size: 11px; color: var(--ink-soft); }
+.cam-acoes { display: flex; gap: 0; }
+.cam-acoes .icone { width: 26px; height: 26px; font-size: 10px; color: var(--ink-soft); }
+.cam-acoes .icone.on { color: var(--rosa); }
+.palco-acoes { display: flex; gap: 6px; flex-wrap: wrap; }
+.lista-formatos-branco { grid-template-columns: repeat(2, 1fr); max-height: 260px; overflow: auto; margin-bottom: 10px; }
+.janela-acoes { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+#editor.desenhando #tela { cursor: crosshair; }

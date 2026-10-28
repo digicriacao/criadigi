@@ -3,25 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CriaDigi · Imagens com IA no padrão Digi</title>
-<meta name="description" content="Descreva o que você precisa e a CriaDigi cria imagens e artes com as cores, as fontes e o estilo da marca Digi. Ajuste pelo chat, edite os textos e baixe pronto para publicar.">
+<title>CriaDigi · Crie e edite artes com IA na identidade Digi</title>
+<meta name="description" content="Peça pelo chat ou envie uma referência: a CriaDigi cria a arte com as cores, fontes, ícones e logo da Digi e entrega tudo editável, com textos, elementos e templates prontos para publicar.">
 <meta name="theme-color" content="#EA0356">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="CriaDigi · Digi">
 <meta property="og:locale" content="pt_BR">
 <meta property="og:url" content="https://digicriacao.github.io/criadigi/">
-<meta property="og:title" content="CriaDigi · Imagens com IA no padrão Digi">
-<meta property="og:description" content="Descreva o que você precisa e a CriaDigi cria imagens e artes com as cores, as fontes e o estilo da marca Digi. Ajuste pelo chat, edite os textos e baixe pronto para publicar.">
-<meta property="og:image" content="https://digicriacao.github.io/criadigi/og.jpg">
-<meta property="og:image:secure_url" content="https://digicriacao.github.io/criadigi/og.jpg">
+<meta property="og:title" content="CriaDigi · Crie e edite artes com IA na identidade Digi">
+<meta property="og:description" content="Peça pelo chat ou envie uma referência: a CriaDigi cria a arte com as cores, fontes, ícones e logo da Digi e entrega tudo editável, com textos, elementos e templates prontos para publicar.">
+<meta property="og:image" content="https://digicriacao.github.io/criadigi/og-v2.jpg">
+<meta property="og:image:secure_url" content="https://digicriacao.github.io/criadigi/og-v2.jpg">
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="CriaDigi: imagens e artes com IA, sempre no padrão da marca Digi">
+<meta property="og:image:alt" content="CriaDigi: crie, recrie e edite artes com IA, sempre na identidade Digi">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="CriaDigi · Imagens com IA no padrão Digi">
-<meta name="twitter:description" content="Descreva o que você precisa e a CriaDigi cria imagens e artes com as cores, as fontes e o estilo da marca Digi. Ajuste pelo chat, edite os textos e baixe pronto para publicar.">
-<meta name="twitter:image" content="https://digicriacao.github.io/criadigi/og.jpg">
+<meta name="twitter:title" content="CriaDigi · Crie e edite artes com IA na identidade Digi">
+<meta name="twitter:description" content="Peça pelo chat ou envie uma referência: a CriaDigi cria a arte com as cores, fontes, ícones e logo da Digi e entrega tudo editável, com textos, elementos e templates prontos para publicar.">
+<meta name="twitter:image" content="https://digicriacao.github.io/criadigi/og-v2.jpg">
 <script>
   /* aplica o tema antes de desenhar a página (evita piscar) */
   (function () {
@@ -82,10 +82,13 @@
           <button role="tab" class="aba" data-aba="galeria" aria-selected="false">Minhas criações</button>
           <button role="tab" class="aba" data-aba="conversas" aria-selected="false">Minhas conversas</button>
         </div>
-        <label class="btn btn-sm btn-ghost">
-          <input type="file" id="abrir-local" accept="image/*" hidden>
-          Editar imagem do computador
-        </label>
+        <div class="palco-acoes">
+          <button type="button" class="btn btn-sm btn-ghost" id="arte-branco">+ Arte em branco</button>
+          <label class="btn btn-sm btn-ghost">
+            <input type="file" id="abrir-local" accept="image/*" hidden>
+            Editar imagem do computador
+          </label>
+        </div>
       </div>
 
       <div id="resultados" class="grade">
@@ -164,7 +167,7 @@
         <div class="tela-wrap">
           <canvas id="tela" aria-label="Imagem em edição"></canvas>
         </div>
-        <p class="dica-editor">Arraste textos e a logo direto na imagem: eles se alinham sozinhos com outros itens, o centro e as guias (segure <kbd>Alt</kbd> para soltar livre). Setas movem 1 px (<kbd>Shift</kbd>: 10 px). <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>V</kbd> copia e cola (também entre artes), <kbd>Ctrl</kbd>+<kbd>D</kbd> duplica, <kbd>Delete</kbd> remove.</p>
+        <p class="dica-editor">Arraste textos e a logo direto na imagem: eles se alinham sozinhos com outros itens, o centro e as guias (segure <kbd>Alt</kbd> para soltar livre). Setas movem 1 px (<kbd>Shift</kbd>: 10 px). <kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>V</kbd> copia e cola (também entre artes), <kbd>Ctrl</kbd>+<kbd>D</kbd> duplica, <kbd>Delete</kbd> remove. Formas e imagens têm alça de girar (com <kbd>Shift</kbd>, de 15 em 15°) e de tamanho (com <kbd>Shift</kbd>, a forma mantém a proporção).</p>
       </div>
     </section>
 
@@ -234,8 +237,10 @@
           <button role="tab" class="aba on" data-ferr="formato">Formato</button>
           <button role="tab" class="aba" data-ferr="ajustes">Ajustes</button>
           <button role="tab" class="aba" data-ferr="texto">Texto</button>
+          <button role="tab" class="aba" data-ferr="formas">Formas</button>
           <button role="tab" class="aba" data-ferr="elementos">Elementos</button>
           <button role="tab" class="aba" data-ferr="logo">Logo</button>
+          <button role="tab" class="aba" data-ferr="camadas">Camadas</button>
           <button role="tab" class="aba" data-ferr="exportar">Baixar</button>
         </div>
 
@@ -332,6 +337,10 @@
             <div class="paleta" id="tx-cores"></div>
             <span class="rotulo">Fundo do texto</span>
             <div class="paleta" id="tx-fundos"></div>
+            <span class="rotulo">Contorno das letras</span>
+            <div class="paleta" id="tx-contornos"></div>
+            <label class="deslizador" id="tx-contorno-wrap" hidden>Espessura do contorno <output>0</output><input type="range" min="1" max="30" id="tx-contorno-esp"></label>
+            <label class="campo checar"><input type="checkbox" id="tx-sombra"> Sombra no texto</label>
             <span class="rotulo">Alinhamento do texto</span>
             <div class="linha-botoes">
               <div class="segmentado segmentado-sm" id="tx-alinhar">
@@ -361,6 +370,59 @@
           </div>
         </section>
 
+        <!-- Formas, linhas e desenho -->
+        <section class="ferr" data-ferr="formas" hidden>
+          <span class="rotulo">Formas</span>
+          <div class="grade-formas" id="grade-formas"></div>
+          <span class="rotulo">Linhas e desenho</span>
+          <div class="grade-formas" id="grade-linhas"></div>
+          <div id="props-pincel" class="caixa-pincel" hidden>
+            <p class="ajuda">Desenhe direto na arte. Cada traço vira um elemento que dá para mover, mudar de cor e apagar.</p>
+            <span class="rotulo">Cor do pincel</span>
+            <div class="paleta" id="pn-cores"></div>
+            <label class="deslizador">Espessura <output>0</output><input type="range" min="0.1" max="5" step="0.05" id="pn-espessura"></label>
+            <button type="button" class="btn btn-sm btn-primario" id="pn-concluir">Concluir desenho</button>
+          </div>
+          <div id="props-forma" hidden>
+            <span class="rotulo" id="fm-rotulo">Forma selecionada</span>
+            <div id="fm-preench-wrap">
+              <span class="rotulo">Preenchimento</span>
+              <div class="paleta-com-livre"><div class="paleta" id="fm-preench"></div><label class="cor-livre" title="Outra cor"><input type="color" id="fm-preench-livre"></label></div>
+            </div>
+            <span class="rotulo" id="fm-contorno-rotulo">Contorno</span>
+            <div class="paleta-com-livre"><div class="paleta" id="fm-contorno"></div><label class="cor-livre" title="Outra cor"><input type="color" id="fm-contorno-livre"></label></div>
+            <label class="deslizador">Espessura <output>0</output><input type="range" min="0" max="5" step="0.05" id="fm-espessura"></label>
+            <span class="rotulo">Estilo do traço</span>
+            <div class="segmentado segmentado-sm" id="fm-traco">
+              <button type="button" data-traco="solido">Contínuo</button>
+              <button type="button" data-traco="tracejado">Tracejado</button>
+              <button type="button" data-traco="pontilhado">Pontilhado</button>
+            </div>
+            <div id="fm-ponta-wrap">
+              <span class="rotulo">Pontas da linha</span>
+              <div class="segmentado segmentado-sm" id="fm-ponta">
+                <button type="button" data-ponta="nenhuma">Nenhuma</button>
+                <button type="button" data-ponta="seta">Seta</button>
+                <button type="button" data-ponta="seta-dupla">Dupla</button>
+                <button type="button" data-ponta="ponto">Pontos</button>
+              </div>
+            </div>
+            <label class="deslizador" id="fm-raio-wrap">Cantos arredondados <output>0</output><input type="range" min="0" max="100" id="fm-raio"></label>
+            <label class="deslizador" id="fm-lados-wrap">Lados <output>0</output><input type="range" min="3" max="12" id="fm-lados"></label>
+            <label class="deslizador" id="fm-pontas-wrap">Pontas <output>0</output><input type="range" min="3" max="16" id="fm-pontas"></label>
+            <label class="deslizador" id="fm-miolo-wrap">Profundidade das pontas <output>0</output><input type="range" min="15" max="90" id="fm-miolo"></label>
+            <label class="deslizador">Opacidade <output>0</output><input type="range" min="5" max="100" id="fm-opacidade"></label>
+          </div>
+          <div class="transformar-slot" id="slot-transformar-formas"></div>
+          <div class="alinhar-slot" id="slot-alinhar-formas"></div>
+        </section>
+
+        <!-- Camadas -->
+        <section class="ferr" data-ferr="camadas" hidden>
+          <p class="ajuda">A de cima fica na frente. Clique para selecionar; use o olho para esconder e o cadeado para travar (item travado não sai do lugar sem querer).</p>
+          <div class="lista-camadas" id="lista-camadas"></div>
+        </section>
+
         <!-- Elementos (ícones e imagens) -->
         <section class="ferr" data-ferr="elementos" hidden>
           <label class="envio envio-asset" id="envio-asset">
@@ -373,9 +435,20 @@
             <label class="deslizador">Opacidade <output>0</output><input type="range" min="5" max="100" id="im-opacidade"></label>
             <span class="rotulo">Cor <small class="ajuda">(para ícones e formas)</small></span>
             <div class="paleta" id="im-cores"></div>
-            <div class="linha-botoes">
-              <button type="button" class="btn btn-sm btn-ghost" data-ordem="frente">Trazer para frente</button>
-              <button type="button" class="btn btn-sm btn-ghost" data-ordem="tras">Enviar para trás</button>
+          </div>
+          <div class="transformar-slot" id="slot-transformar-elementos">
+            <div id="transformar" hidden>
+              <label class="deslizador">Girar <output>0</output><input type="range" min="-180" max="180" step="1" id="tf-rotacao"></label>
+              <div class="linha-botoes">
+                <button type="button" class="btn btn-sm btn-ghost" data-tf="girar90" title="Girar 90°">↻ 90°</button>
+                <button type="button" class="btn btn-sm btn-ghost" data-tf="espelharH" title="Espelhar na horizontal">⇋ Espelhar</button>
+                <button type="button" class="btn btn-sm btn-ghost" data-tf="espelharV" title="Espelhar na vertical">⇅ Virar</button>
+              </div>
+              <label class="campo checar"><input type="checkbox" id="tf-sombra"> Sombra</label>
+              <div class="linha-botoes" id="tf-ordem">
+                <button type="button" class="btn btn-sm btn-ghost" data-ordem="frente">Trazer para frente</button>
+                <button type="button" class="btn btn-sm btn-ghost" data-ordem="tras">Enviar para trás</button>
+              </div>
             </div>
           </div>
           <div class="alinhar-slot" id="slot-alinhar-elementos"></div>
