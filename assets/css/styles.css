@@ -888,3 +888,29 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--r
   linear-gradient(45deg, transparent 75%, #F2F2F3 75%), linear-gradient(-45deg, transparent 75%, #F2F2F3 75%);
   background-size: 12px 12px; background-position: 0 0, 0 6px, 6px -6px, -6px 0; }
 .tpl-img-previa img { max-height: 100%; max-width: 100%; object-fit: contain; }
+
+/* admin: usuários */
+.resumo-usuarios { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.resumo-item { background: var(--surface); border: 1px solid var(--line-soft); border-radius: var(--raio-sm); padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+.resumo-item b { font-size: 24px; letter-spacing: -.02em; }
+.resumo-item span { font-size: 12.5px; color: var(--ink-soft); }
+.tabela-usuarios td:first-child, .tabela-usuarios th:first-child { width: 34px; padding-right: 0; }
+.tabela-usuarios .marcar-lote-wrap { opacity: 1; }
+.tabela-usuarios .etiqueta { margin: 1px 2px 1px 0; }
+.etiqueta-escura { background: var(--grafite); color: #fff; }
+.etiqueta-aviso { background: var(--amarelo-fundo); color: #6B5000; }
+.linha-bloqueada td { opacity: .62; }
+.linha-bloqueada td.acoes-td, .linha-bloqueada td:first-child { opacity: 1; }
+.tabela-usuarios tr.marcado td { background: var(--rosa-fundo); }
+.conta-celula { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.conta-celula .avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--rosa-fundo); color: var(--rosa); display: grid; place-items: center; font-weight: 800; font-size: 13px; flex: none; }
+.conta-celula b { font-weight: 600; word-break: break-all; }
+.conta-celula small { display: block; color: var(--ink-soft); font-size: 12px; }
+.menu-acoes { position: relative; display: inline-block; }
+.menu-acoes summary { list-style: none; cursor: pointer; }
+.menu-acoes summary::-webkit-details-marker { display: none; }
+.menu-acoes .menu-pop { right: 0; left: auto; top: calc(100% + 4px); min-width: 240px; z-index: 30; text-align: left; }
+.menu-pop hr { border: 0; border-top: 1px solid var(--line-soft); margin: 4px 0; }
+.menu-pop button.perigo { color: var(--rosa-escuro); }
+.linha-senha { display: flex; gap: 6px; align-items: center; }
+.linha-senha input { flex: 1; font-family: ui-monospace, Menlo, monospace; letter-spacing: .03em; }

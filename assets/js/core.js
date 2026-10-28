@@ -458,7 +458,7 @@
     async recuperarSenha(email) {
       if (DEMO) return;
       const { error } = await sb.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
-        redirectTo: location.origin + location.pathname,
+        redirectTo: location.origin + location.pathname.replace(/admin\.html$/, ""),   // sempre volta para a página de criação
       });
       if (error) throw error;
     },
@@ -993,12 +993,30 @@
     async usuarios(acao, dados = {}) {
       if (DEMO) {
         const d = demo();
-        if (acao === "listar") return { usuarios: d.usuarios.map((u) => ({ ...u, artes: d.geracoes.filter((g) => g.user_id === u.id).length, conversas: (d.conversas || []).filter((c) => c.user_id === u.id).length })) };
+        const ids = Array.isArray(dados.ids) ? dados.ids : [dados.id];
+        if (acao === "listar") {
+          let uso = [];
+          try { uso = JSON.parse(localStorage.getItem(DEMO_USO) || "[]"); } catch (_) { uso = []; }
+          return { usuarios: d.usuarios.map((u) => ({
+            confirmado: true, bloqueado: false, ultimo_acesso: u.ultimo_acesso || u.criado_em, ...u,
+            artes: d.geracoes.filter((g) => g.user_id === u.id).length,
+            conversas: (d.conversas || []).filter((c) => c.user_id === u.id).length,
+            assets: (d.assets || []).filter((a) => a.user_id === u.id).length,
+            uso_24h: uso.filter((x) => x.quem === u.id).length, uso_30d: uso.filter((x) => x.quem === u.id).length,
+          })) };
+        }
         if (acao === "criar") {
           if (d.usuarios.some((u) => u.email === dados.email)) throw new Error("Esse e-mail já tem conta.");
           d.usuarios.push({ id: uid(), email: dados.email, admin: !!dados.admin, criado_em: new Date().toISOString() });
         }
-        if (acao === "remover") d.usuarios = d.usuarios.filter((u) => u.id !== dados.id);
+        if (acao === "remover") d.usuarios = d.usuarios.filter((u) => !ids.includes(u.id));
+        if (acao === "bloquear") d.usuarios.forEach((u) => { if (ids.includes(u.id)) u.bloqueado = !!dados.valor; });
+        if (acao === "confirmar") d.usuarios.forEach((u) => { if (u.id === dados.id) u.confirmado = true; });
+        if (acao === "email") {
+          if (d.usuarios.some((u) => u.email === dados.email)) throw new Error("Esse e-mail já tem conta.");
+          d.usuarios.forEach((u) => { if (u.id === dados.id) u.email = dados.email; });
+        }
+        if (acao === "link_senha") { demoSalvar(); return { ok: true, link: location.origin + location.pathname.replace(/admin\.html$/, "") + "#demo-link-de-redefinicao" }; }
         if (acao === "admin") { const u = d.usuarios.find((x) => x.email === dados.email); if (u) u.admin = !!dados.valor; }
         demoSalvar();
         return { ok: true };
@@ -1382,7 +1400,7 @@
       }
       if (ev.target.closest(".marcar-lote-wrap")) { ev.stopPropagation(); return; }
       // com algo marcado, clicar no item marca/desmarca em vez de abrir
-      if (item && box.classList.contains("selecionando") && !ev.target.closest("button, a")) {
+      if (item && box.classList.contains("selecionando") && !ev.target.closest("button, a, summary, details, input, select, textarea")) {
         const c = item.querySelector(".marcar-lote");
         if (c) { c.checked = !c.checked; ultimo = item; box.__loteAtualizar(); }
         ev.stopPropagation(); ev.preventDefault();
@@ -1524,6 +1542,6 @@
     API, FORMATOS, PAPEIS_COR, MODELOS, proporcaoIA,
     esc, $, $$, uid, toast, espera,
     arquivoParaDataURL, carregarImagem, reduzirParaBase64, carregarFontes,
-    montarCabecalho, telaLogin, lum, definirTema, abrirLogin, definirDominios, Favicon, selecaoEmLote, caixaLote, prepararAsset,
+    montarCabecalho, telaLogin, lum, definirTema, abrirLogin, definirDominios, Favicon, selecaoEmLote, caixaLote, prepararAsset, janela,
   };
 })();

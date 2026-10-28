@@ -49,6 +49,7 @@
       logos: S.arquivos.filter((a) => a.tipo === "logo").length,
       referencias: S.arquivos.filter((a) => a.tipo === "referencia").length,
       icones: S.arquivos.filter((a) => a.tipo === "icone").length,
+      usuarios: S.usuarios ? S.usuarios.length : "",
       assets: S.assetsAdmin ? S.assetsAdmin.filter((a) => a.marca).length || "" : "",
       estilos: S.estilos.length,
       formatos: (S.formatos || []).filter((f) => f.ativo !== false).length,
@@ -604,73 +605,217 @@
     },
 
     async usuarios(el) {
-      el.innerHTML = topo("Contas",
-        "Qualquer pessoa usa a CriaDigi sem login; quem cria conta tem as artes salvas e um limite maior. Aqui você vê as contas, define quem é admin, troca senhas e remove acessos.")
-        + `<section class="cartao-admin">
-          <h2>Criar conta para alguém</h2>
-          <p class="ajuda">Opcional: as pessoas também podem criar a própria conta pelo botão Entrar. Envie o e-mail e a senha para a pessoa; ela troca a senha depois, no menu da conta.</p>
-          <form class="novo-usuario" id="f-usuario" autocomplete="off">
-            <input type="email" name="email" placeholder="email@digi.ag" required aria-label="E-mail">
-            <input type="text" name="senha" placeholder="Senha inicial (8+ caracteres)" minlength="8" required aria-label="Senha inicial">
-            <label class="interruptor"><input type="checkbox" name="admin"> Admin</label>
-            <button class="btn btn-primario" type="submit">Criar conta</button>
-          </form>
-        </section>
+      S.filtroUsu = S.filtroUsu || "";
+      el.innerHTML = topo("Usuários",
+        "Todas as contas da CriaDigi. Redefina senhas, bloqueie acessos, defina admins, veja o uso de cada pessoa e abra as artes e conversas dela.",
+        `<button class="btn btn-primario" type="button" id="abrir-criar-conta">+ Criar conta</button>`)
+        + `<div class="resumo-usuarios" id="resumo-usuarios"></div>
         <section class="cartao-admin">
-          <div class="secao-topo" style="margin-bottom:12px"><h2>Todas as contas</h2><input type="text" id="busca-conta" placeholder="Buscar e-mail" style="max-width:240px" aria-label="Buscar e-mail"></div>
+          <div class="filtros-assets" style="margin-bottom:12px">
+            <div class="segmentado segmentado-sm" id="filtro-usu">
+              ${[["", "Todas"], ["admin", "Admins"], ["ativas", "Ativas (30 dias)"], ["bloqueadas", "Bloqueadas"], ["pendentes", "E-mail não confirmado"]]
+                .map(([v, n]) => `<button type="button" data-f="${v}" class="${S.filtroUsu === v ? "on" : ""}">${n}</button>`).join("")}
+            </div>
+            <input type="search" id="busca-conta" placeholder="Buscar e-mail ou nome" aria-label="Buscar" style="flex:1;min-width:180px">
+            <button type="button" class="btn btn-sm btn-ghost" id="exportar-usu">Exportar CSV</button>
+          </div>
           <div id="lista-usuarios"><p class="ajuda">Carregando…</p></div>
         </section>`;
 
-      const desenharLista = () => {
+      const quando = (iso) => iso ? new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "—";
+      const dia = (iso) => iso ? new Date(iso).toLocaleDateString("pt-BR") : "—";
+      const desde = (iso) => {
+        if (!iso) return "nunca";
+        const d = (Date.now() - new Date(iso).getTime()) / 86400_000;
+        return d < 1 ? "hoje" : d < 2 ? "ontem" : d < 30 ? `há ${Math.floor(d)} dias` : dia(iso);
+      };
+      const filtrar = () => {
         const termo = ($("#busca-conta").value || "").toLowerCase();
-        const lista = (S.usuarios || []).filter((u) => (u.email || "").toLowerCase().includes(termo));
-        $("#lista-usuarios").innerHTML = lista.length ? `<table class="tabela">
-          <thead><tr><th>E-mail</th><th>Perfil</th><th class="some-mobile">Artes salvas</th><th class="some-mobile">Último acesso</th><th></th></tr></thead>
-          <tbody>${lista.map((u) => `<tr data-id="${u.id}">
-            <td>${esc(u.email)}${u.email === S.sessao.email ? ' <span class="etiqueta">você</span>' : ""}</td>
-            <td>${u.admin ? '<span class="etiqueta rosa">Admin</span>' : '<span class="etiqueta">Criação</span>'}</td>
-            <td class="some-mobile">${u.artes ? `<button type="button" class="link-sutil" data-u="artes">${u.artes}</button>` : 0}</td>
-            <td class="some-mobile">${u.ultimo_acesso ? new Date(u.ultimo_acesso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
-            <td class="acoes-td">${u.email === S.sessao.email ? "" : `
-              <button type="button" class="btn btn-sm btn-ghost" data-u="admin">${u.admin ? "Tirar admin" : "Tornar admin"}</button>
-              <button type="button" class="btn btn-sm btn-ghost" data-u="senha">Nova senha</button>
-              <button type="button" class="btn btn-sm btn-perigo" data-u="remover">Remover</button>`}</td>
+        const f = S.filtroUsu;
+        const trinta = Date.now() - 30 * 86400_000;
+        return (S.usuarios || []).filter((u) => (`${u.email} ${u.nome || ""}`).toLowerCase().includes(termo))
+          .filter((u) => !f || (f === "admin" ? u.admin : f === "bloqueadas" ? u.bloqueado : f === "pendentes" ? !u.confirmado
+            : f === "ativas" ? u.ultimo_acesso && new Date(u.ultimo_acesso).getTime() >= trinta : true));
+      };
+      const resumo = () => {
+        const l = S.usuarios || [];
+        const trinta = Date.now() - 30 * 86400_000;
+        const ativas = l.filter((u) => u.ultimo_acesso && new Date(u.ultimo_acesso).getTime() >= trinta).length;
+        const imgs = l.reduce((s, u) => s + (u.uso_30d || 0), 0);
+        $("#resumo-usuarios").innerHTML = [
+          ["Contas", l.length], ["Admins", l.filter((u) => u.admin).length], ["Ativas em 30 dias", ativas],
+          ["Imagens em 30 dias", imgs], ["Bloqueadas", l.filter((u) => u.bloqueado).length],
+        ].map(([n, v]) => `<div class="resumo-item"><b>${v}</b><span>${n}</span></div>`).join("");
+        contar();
+      };
+      const menu = (u) => {
+        const eu = u.email === S.sessao.email;
+        return `<details class="menu-acoes"><summary class="btn btn-sm btn-ghost" aria-label="Ações">Ações ▾</summary>
+          <div class="menu-pop menu-pop-dir">
+            <button type="button" data-u="senha">Definir nova senha</button>
+            <button type="button" data-u="link">Copiar link de redefinição</button>
+            <button type="button" data-u="recuperar">Enviar e-mail de redefinição</button>
+            <hr>
+            <button type="button" data-u="artes">Ver artes${u.artes ? ` (${u.artes})` : ""}</button>
+            <button type="button" data-u="conversas">Ver conversas${u.conversas ? ` (${u.conversas})` : ""}</button>
+            <button type="button" data-u="assets">Ver assets enviados${u.assets ? ` (${u.assets})` : ""}</button>
+            <hr>
+            ${eu ? "" : `<button type="button" data-u="admin">${u.admin ? "Tirar acesso de admin" : "Tornar admin"}</button>`}
+            ${u.confirmado ? "" : `<button type="button" data-u="confirmar">Confirmar e-mail</button>`}
+            <button type="button" data-u="email">Alterar e-mail</button>
+            ${eu ? "" : `<button type="button" data-u="bloquear">${u.bloqueado ? "Desbloquear acesso" : "Bloquear acesso"}</button>`}
+            ${eu ? "" : `<button type="button" data-u="remover" class="perigo">Remover conta</button>`}
+          </div></details>`;
+      };
+      const desenharLista = () => {
+        const lista = filtrar();
+        $("#lista-usuarios").innerHTML = lista.length ? `<table class="tabela tabela-usuarios">
+          <thead><tr><th></th><th>Conta</th><th>Perfil</th><th class="some-mobile">Criada</th><th class="some-mobile">Último acesso</th><th class="some-mobile" title="Imagens geradas: últimas 24 horas / 30 dias">Uso (24h / 30d)</th><th class="some-mobile">Artes</th><th></th></tr></thead>
+          <tbody>${lista.map((u) => `<tr data-id="${u.id}" data-lote-id="${u.id}" class="${u.bloqueado ? "linha-bloqueada" : ""}">
+            <td>${u.email === S.sessao.email ? "" : caixaLote("Selecionar conta")}</td>
+            <td><div class="conta-celula"><span class="avatar">${esc((u.email || "?")[0].toUpperCase())}</span><span><b>${esc(u.email)}</b>${u.email === S.sessao.email ? ' <span class="etiqueta">você</span>' : ""}${u.nome ? `<small>${esc(u.nome)}</small>` : ""}</span></div></td>
+            <td>${u.admin ? '<span class="etiqueta rosa">Admin</span>' : '<span class="etiqueta">Criação</span>'}
+              ${u.bloqueado ? '<span class="etiqueta etiqueta-escura">Bloqueada</span>' : ""}
+              ${u.confirmado ? "" : '<span class="etiqueta etiqueta-aviso">E-mail não confirmado</span>'}
+              ${API.emailPermitido(u.email, S.marca) ? "" : '<span class="etiqueta" title="O domínio não está em IA e limites › Domínios: não salva artes">Não salva</span>'}</td>
+            <td class="some-mobile">${dia(u.criado_em)}</td>
+            <td class="some-mobile" title="${esc(quando(u.ultimo_acesso))}">${desde(u.ultimo_acesso)}</td>
+            <td class="some-mobile">${u.uso_24h || 0} / ${u.uso_30d || 0}</td>
+            <td class="some-mobile">${u.artes || 0}</td>
+            <td class="acoes-td">${menu(u)}</td>
           </tr>`).join("")}</tbody></table>` : `<p class="ajuda">Nenhuma conta encontrada.</p>`;
+        if (lista.length) selecaoEmLote($("#lista-usuarios"), {
+          nome: ["conta", "contas"], feminino: true,
+          acoes: [
+            { rotulo: "Bloquear", fn: async (ids) => { if (await salvarComAviso(() => API.usuarios("bloquear", { ids, valor: true }), "Acesso bloqueado.")) carregar(); } },
+            { rotulo: "Desbloquear", fn: async (ids) => { if (await salvarComAviso(() => API.usuarios("bloquear", { ids, valor: false }), "Acesso liberado.")) carregar(); } },
+          ],
+          aoApagar: async (ids) => { await API.usuarios("remover", { ids }); S.usuarios = S.usuarios.filter((u) => !ids.includes(u.id)); resumo(); },
+        });
       };
       const carregar = async () => {
         try {
           const { usuarios } = await API.usuarios("listar");
           usuarios.sort((a, b) => (b.admin - a.admin) || String(a.email).localeCompare(String(b.email)));
           S.usuarios = usuarios;
-          desenharLista();
+          resumo(); desenharLista();
         } catch (e) {
           $("#lista-usuarios").innerHTML = `<div class="erro-lote">${esc(e.message)}</div>`;
         }
       };
       carregar();
       $("#busca-conta").addEventListener("input", desenharLista);
-
-      $("#f-usuario").addEventListener("submit", async (ev) => {
-        ev.preventDefault();
-        const f = ev.target;
-        const dados = { email: f.email.value.trim().toLowerCase(), senha: f.senha.value, admin: f.admin.checked };
-        if (await salvarComAviso(() => API.usuarios("criar", dados), `Conta criada para ${dados.email}.`)) { f.reset(); carregar(); }
+      $("#filtro-usu").addEventListener("click", (ev) => {
+        const b = ev.target.closest("[data-f]");
+        if (!b) return;
+        S.filtroUsu = b.dataset.f;
+        $$("button", $("#filtro-usu")).forEach((x) => x.classList.toggle("on", x === b));
+        desenharLista();
       });
+      $("#exportar-usu").addEventListener("click", () => {
+        const linhas = [["email", "nome", "perfil", "bloqueada", "email_confirmado", "criada_em", "ultimo_acesso", "imagens_24h", "imagens_30d", "artes", "conversas", "assets"]]
+          .concat(filtrar().map((u) => [u.email, u.nome || "", u.admin ? "admin" : "criacao", u.bloqueado ? "sim" : "nao", u.confirmado ? "sim" : "nao",
+            u.criado_em || "", u.ultimo_acesso || "", u.uso_24h || 0, u.uso_30d || 0, u.artes || 0, u.conversas || 0, u.assets || 0]));
+        const csv = "﻿" + linhas.map((l) => l.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(";")).join("\n");
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+        a.download = `criadigi-usuarios-${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      });
+      // fecha o menu de ações ao abrir outro ou clicar fora
+      document.addEventListener("click", (ev) => {
+        $$("#lista-usuarios details.menu-acoes[open]").forEach((d) => { if (!d.contains(ev.target)) d.open = false; });
+      });
+
+      // ---- janelas
+      const gerarSenha = () => {
+        const c = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        const r = crypto.getRandomValues(new Uint32Array(12));
+        return [...r].map((x) => c[x % c.length]).join("").replace(/^(.{4})(.{4})(.{4})$/, "$1-$2-$3");
+      };
+      const copiar = async (txt) => { try { await navigator.clipboard.writeText(txt); toast("Copiado.", "ok", 2000); } catch (_) { toast("Não consegui copiar; selecione e copie manualmente.", "aviso"); } };
+      const janelaSenha = (u) => {
+        const d = window.CriaDigi.janela(`
+          <h2 class="janela-titulo">Nova senha</h2>
+          <p class="ajuda">Para <b>${esc(u.email)}</b>. A senha atual deixa de valer na hora.</p>
+          <form class="janela-form" id="f-nova-senha">
+            <div class="linha-senha"><input type="text" name="senha" minlength="8" required autocomplete="off" value="${gerarSenha()}" aria-label="Nova senha">
+              <button type="button" class="btn btn-sm btn-ghost" data-gerar>Gerar outra</button></div>
+            <button class="btn btn-primario btn-largo" type="submit">Salvar e copiar</button>
+          </form>
+          <p class="ajuda ajuda-mini">Envie a senha para a pessoa; ela pode trocar depois no menu da conta.</p>`, { largura: 440 });
+        d.querySelector("[data-gerar]").addEventListener("click", () => { d.querySelector("[name=senha]").value = gerarSenha(); });
+        d.querySelector("form").addEventListener("submit", async (ev) => {
+          ev.preventDefault();
+          const senha = d.querySelector("[name=senha]").value.trim();
+          if (senha.length < 8) return toast("Use pelo menos 8 caracteres.", "erro");
+          if (await salvarComAviso(() => API.usuarios("senha", { id: u.id, senha }), "Senha alterada.")) { await copiar(senha); d.close(); }
+        });
+      };
+      const janelaCriar = () => {
+        const d = window.CriaDigi.janela(`
+          <h2 class="janela-titulo">Criar conta</h2>
+          <form class="janela-form" id="f-usuario" autocomplete="off">
+            <label>E-mail<input type="email" name="email" required placeholder="email@digi.ag"></label>
+            <label>Senha inicial<div class="linha-senha"><input type="text" name="senha" minlength="8" required value="${gerarSenha()}"><button type="button" class="btn btn-sm btn-ghost" data-gerar>Gerar</button></div></label>
+            <label class="checar-sm"><input type="checkbox" name="admin"> Admin</label>
+            <button class="btn btn-primario btn-largo" type="submit">Criar e copiar acesso</button>
+          </form>
+          <p class="ajuda ajuda-mini">As pessoas também podem criar a própria conta pelo botão Entrar.</p>`, { largura: 440 });
+        d.querySelector("[data-gerar]").addEventListener("click", () => { d.querySelector("[name=senha]").value = gerarSenha(); });
+        d.querySelector("form").addEventListener("submit", async (ev) => {
+          ev.preventDefault();
+          const f = ev.target;
+          const dados = { email: f.email.value.trim().toLowerCase(), senha: f.senha.value.trim(), admin: f.admin.checked };
+          if (await salvarComAviso(() => API.usuarios("criar", dados), `Conta criada para ${dados.email}.`)) {
+            await copiar(`CriaDigi: ${location.origin}${location.pathname.replace(/admin\.html$/, "")}\nE-mail: ${dados.email}\nSenha: ${dados.senha}`);
+            d.close(); carregar();
+          }
+        });
+      };
+      $("#abrir-criar-conta").addEventListener("click", janelaCriar);
+
       $("#lista-usuarios").addEventListener("click", async (ev) => {
         const b = ev.target.closest("[data-u]");
         if (!b) return;
         const u = (S.usuarios || []).find((x) => x.id === b.closest("tr").dataset.id);
-        if (b.dataset.u === "artes") { S.buscaPreset = u.email; irPara("criacoes"); return; }
-        if (b.dataset.u === "admin") {
-          if (await salvarComAviso(() => API.usuarios("admin", { email: u.email, valor: !u.admin }), "Perfil atualizado.")) carregar();
+        if (!u) return;
+        const menuAberto = b.closest("details"); if (menuAberto) menuAberto.open = false;
+        const acao = b.dataset.u;
+        if (acao === "senha") return janelaSenha(u);
+        if (acao === "link") {
+          try {
+            const r = await API.usuarios("link_senha", { email: u.email, redirect: location.origin + location.pathname.replace(/admin\.html$/, "") });
+            if (!r.link) throw new Error("O Supabase não devolveu o link.");
+            await copiar(r.link);
+            toast("Link copiado. Envie para a pessoa: ao abrir, ela define uma senha nova. Vale por pouco tempo e só uma vez.", "ok", 8000);
+          } catch (e) { toast(e.message, "erro", 7000); }
+          return;
         }
-        if (b.dataset.u === "senha") {
-          const senha = prompt(`Nova senha para ${u.email} (mínimo 8 caracteres):`);
-          if (!senha) return;
-          await salvarComAviso(() => API.usuarios("senha", { id: u.id, senha }), "Senha alterada. Envie a nova senha para a pessoa.");
+        if (acao === "recuperar") {
+          await salvarComAviso(() => API.recuperarSenha(u.email), `E-mail de redefinição enviado para ${u.email}.`);
+          return;
         }
-        if (b.dataset.u === "remover") {
-          if (!confirm(`Remover a conta de ${u.email}? As artes salvas dela também serão apagadas.`)) return;
+        if (acao === "artes") { S.buscaPreset = u.email; return irPara("criacoes"); }
+        if (acao === "conversas") { S.buscaPreset = u.email; return irPara("conversas"); }
+        if (acao === "assets") { S.filtroAssets = ""; irPara("assets"); setTimeout(() => { const q = $("#f-busca-asset"); if (q) { q.q.value = u.email; q.requestSubmit(); } }, 50); return; }
+        if (acao === "admin") {
+          if (await salvarComAviso(() => API.usuarios("admin", { email: u.email, valor: !u.admin }), u.admin ? "Acesso de admin retirado." : "Agora é admin.")) carregar();
+        }
+        if (acao === "confirmar") {
+          if (await salvarComAviso(() => API.usuarios("confirmar", { id: u.id }), "E-mail confirmado.")) carregar();
+        }
+        if (acao === "email") {
+          const novo = prompt(`Novo e-mail para ${u.email}:`, u.email);
+          if (!novo || novo.trim().toLowerCase() === u.email) return;
+          if (await salvarComAviso(() => API.usuarios("email", { id: u.id, email: novo.trim().toLowerCase() }), "E-mail alterado.")) carregar();
+        }
+        if (acao === "bloquear") {
+          if (!u.bloqueado && !confirm(`Bloquear ${u.email}? A pessoa não consegue mais entrar até ser desbloqueada. As artes continuam salvas.`)) return;
+          if (await salvarComAviso(() => API.usuarios("bloquear", { id: u.id, valor: !u.bloqueado }), u.bloqueado ? "Acesso liberado." : "Acesso bloqueado.")) carregar();
+        }
+        if (acao === "remover") {
+          if (!confirm(`Remover a conta de ${u.email}? As artes, conversas e envios dela também serão apagados. Não dá para desfazer.`)) return;
           if (await salvarComAviso(() => API.usuarios("remover", { id: u.id }), "Conta removida.")) carregar();
         }
       });
