@@ -159,6 +159,7 @@ python3 -m http.server 8000
 - **Centro:** resultados, **Templates**, Minhas criações e **Minhas conversas**.
 - Botão **Entrar**: entrar, criar conta e "esqueci minha senha". Com login, "Minhas criações" guarda tudo o que a pessoa gera.
 - **Apagar vários de uma vez:** em Minhas criações e Minhas conversas (e nas seções Criações e Conversas do admin), marque as caixas (Shift + clique marca um intervalo) ou use "Selecionar todas" e depois "Apagar selecionadas".
+- **Todas as criações** (com login): mural com tudo o que a equipe já gerou ou salvou, da mais nova para a mais antiga, com o nome de quem criou e há quanto tempo. Busca por pedido ou pessoa, filtro (Todas, De outras pessoas, Minhas) e carregamento contínuo ao rolar. Clique na arte para ver maior. Ações: **Editar cópia** (abre no editor; ao salvar, vai para as suas criações e a original não muda), **Ajustar no chat**, **Baixar** e **Usar este pedido** (copia o pedido para o chat). Só quem criou (ou o admin) pode apagar.
 - **Minhas conversas** (com login): cada conversa com a IA fica guardada, como no ChatGPT. Ao abrir uma, o chat, as imagens e a última imagem selecionada voltam, e dá para continuar pedindo ajustes de onde parou.
 - **Salvar em Minhas criações** (no editor, com login): guarda a versão editada (com textos, logo e recorte) como uma nova criação; a original continua lá.
 - Favicon: bolinha pink pulsando; enquanto a IA gera, ganha um anel girando.
@@ -232,7 +233,7 @@ criadigi/
 ├── index.html                         criação + editor (login opcional)
 ├── admin.html                         manual de marca (só admins)
 ├── favicon.svg                        bolinha pink (o site anima pelo JavaScript)
-├── og-v2.jpg                          imagem de compartilhamento (WhatsApp, LinkedIn, Slack), 1200×630
+├── og-v3.jpg                          imagem de compartilhamento (WhatsApp, LinkedIn, Slack), 1200×630
 ├── logo-rosa.png                      (copiar do repositório do Pauta)
 ├── assets/
 │   ├── css/styles.css                 identidade Digi, tema claro e escuro

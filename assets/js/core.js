@@ -741,6 +741,29 @@
       return data.map((g) => ({ ...g, url: sb.storage.from(B.geracoes).getPublicUrl(g.caminho).data.publicUrl }));
     },
 
+    // todas as criações de todas as contas (mural da equipe), da mais nova para a mais antiga
+    async mural({ busca = "", de = 0, limite = 48, somenteDe = null, excetoDe = null } = {}) {
+      const termo = String(busca || "").trim().toLowerCase();
+      if (DEMO) {
+        const d = demo();
+        const email = (id) => (d.usuarios.find((u) => u.id === id) || {}).email || "";
+        return d.geracoes.map((g) => ({ ...g, email: g.email || email(g.user_id) }))
+          .filter((g) => (!somenteDe || g.user_id === somenteDe) && (!excetoDe || g.user_id !== excetoDe))
+          .filter((g) => !termo || g.email.toLowerCase().includes(termo) || (g.prompt || "").toLowerCase().includes(termo))
+          .slice(de, de + limite);
+      }
+      let q = sb.from(T.geracoes).select("*").order("criado_em", { ascending: false }).range(de, de + limite - 1);
+      if (somenteDe) q = q.eq("user_id", somenteDe);
+      if (excetoDe) q = q.neq("user_id", excetoDe);
+      if (termo) {
+        const t = termo.replace(/[%,()]/g, " ");
+        q = q.or(`email.ilike.%${t}%,prompt.ilike.%${t}%`);
+      }
+      const { data, error } = await q;
+      if (error) throw error;
+      return data.map((g) => ({ ...g, url: sb.storage.from(B.geracoes).getPublicUrl(g.caminho).data.publicUrl }));
+    },
+
     // apaga várias artes de uma vez (arquivos + linhas)
     async apagarGeracoes(lista) {
       const ids = lista.map((g) => g.id);

@@ -68,6 +68,7 @@
     montarElementos();
     montarTemplates();
     montarConversas();
+    montarMural();
     ligarAtalhos();
     abrirCriacaoDoLink();
   }
@@ -301,7 +302,9 @@
     $("#galeria").hidden = aba !== "galeria";
     $("#templates").hidden = aba !== "templates";
     $("#conversas").hidden = aba !== "conversas";
+    $("#todas").hidden = aba !== "todas";
     if (aba === "galeria") carregarGaleria();
+    if (aba === "todas") carregarMural(true);
     if (aba === "templates") carregarTemplates();
     if (aba === "conversas") carregarConversas();
   }
@@ -553,6 +556,160 @@
     abrirNoEditor(item);
   });
 
+  // ================================================================ todas as criações (mural da equipe)
+  // Quem tem login vê tudo o que a equipe já criou. Dá para abrir uma cópia no editor
+  // (ao salvar, vai para as criações de quem editou), ajustar no chat e baixar.
+  S.mural = { lista: [], fim: false, carregando: false, filtro: "", busca: "" };
+  function nomeDoEmail(email) {
+    const local = String(email || "").split("@")[0];
+    if (!local) return "Alguém da equipe";
+    return local.split(/[._-]+/).filter(Boolean).map((p) => p[0].toUpperCase() + p.slice(1)).join(" ");
+  }
+  function quando(d) {
+    const dt = new Date(d), seg = (Date.now() - dt) / 1000;
+    if (seg < 60) return "agora";
+    if (seg < 3600) return `há ${Math.floor(seg / 60)} min`;
+    if (seg < 86400) return `há ${Math.floor(seg / 3600)} h`;
+    if (seg < 86400 * 7) { const n = Math.floor(seg / 86400); return n === 1 ? "ontem" : `há ${n} dias`; }
+    return dt.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: dt.getFullYear() === new Date().getFullYear() ? undefined : "numeric" });
+  }
+  const podeApagar = (g) => S.sessao && (g.user_id === S.sessao.id || S.sessao.admin);
+  function cartaoMural(g) {
+    const meu = S.sessao && g.user_id === S.sessao.id;
+    return `<figure class="cartao cartao-mural" data-mid="${esc(g.id)}">
+      <button type="button" class="mural-img" data-acao="ver" aria-label="Ver maior"><img src="${esc(g.url)}" alt="${esc(g.prompt || "")}" loading="lazy" crossorigin="anonymous"></button>
+      <figcaption>
+        <span class="g-prompt" title="${esc(g.prompt || "")}">${esc(g.prompt || "Sem descrição")}</span>
+        <span class="g-autor"><span class="avatar-mini">${esc(nomeDoEmail(g.email)[0] || "?")}</span>${meu ? "Você" : esc(nomeDoEmail(g.email))} · ${quando(g.criado_em)}</span>
+        <span class="g-acoes">
+          <button type="button" class="btn btn-sm btn-primario" data-acao="editar" title="${meu ? "Abrir no editor" : "Abre uma cópia no editor; ao salvar, vai para as suas criações"}">${meu ? "Editar" : "Editar cópia"}</button>
+          <button type="button" class="btn btn-sm btn-ghost" data-acao="ajustar">Ajustar no chat</button>
+          <button type="button" class="icone" data-acao="baixar" title="Baixar" aria-label="Baixar"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m-5-5 5 5 5-5M5 20h14"/></svg></button>
+        </span>
+      </figcaption>
+    </figure>`;
+  }
+  async function carregarMural(reiniciar = false) {
+    const box = $("#todas-lista");
+    if (!S.sessao) {
+      box.innerHTML = `<div class="vazio">
+        <div class="vazio-icone" aria-hidden="true"><svg viewBox="0 0 48 48" width="48" height="48"><rect x="5" y="8" width="16" height="14" rx="3" fill="none" stroke="currentColor" stroke-width="2.5"/><rect x="27" y="8" width="16" height="14" rx="3" fill="none" stroke="currentColor" stroke-width="2.5"/><rect x="5" y="27" width="16" height="14" rx="3" fill="none" stroke="currentColor" stroke-width="2.5"/><rect x="27" y="27" width="16" height="14" rx="3" fill="currentColor"/></svg></div>
+        <h3>Veja tudo o que a equipe já criou</h3>
+        <p>Entre na sua conta para ver as criações de todo mundo, se inspirar e partir de uma arte pronta.</p>
+        <div class="linha-botoes" style="justify-content:center"><button type="button" class="btn btn-primario" data-ir="entrar">Entrar</button><button type="button" class="btn btn-ghost" data-ir="criar">Criar conta</button></div>
+      </div>`;
+      return;
+    }
+    const M = S.mural;
+    if (M.carregando) return;
+    if (reiniciar) { M.lista = []; M.fim = false; box.innerHTML = `<p class="ajuda">Carregando…</p>`; }
+    if (M.fim) return;
+    M.carregando = true;
+    const pedido = (M.pedido || 0) + 1; M.pedido = pedido;
+    try {
+      const filtro = { minhas: { somenteDe: S.sessao.id }, outras: { excetoDe: S.sessao.id } }[M.filtro] || {};
+      const novos = await API.mural({ busca: M.busca, de: M.lista.length, limite: 48, ...filtro });
+      if (pedido !== M.pedido) return;
+      M.lista.push(...novos);
+      M.fim = novos.length < 48;
+      if (!M.lista.length) {
+        box.innerHTML = `<div class="vazio"><h3>${M.busca ? "Nada encontrado" : "Nada por aqui ainda"}</h3><p>${M.busca ? "Tente outra palavra ou o nome de outra pessoa." : "Assim que alguém da equipe gerar uma arte com a conta, ela aparece aqui."}</p></div>`;
+        return;
+      }
+      if (reiniciar || !$(".galeria-grade", box)) box.innerHTML = `<div class="galeria-grade"></div><div class="mural-mais"></div>`;
+      $(".galeria-grade", box).insertAdjacentHTML("beforeend", novos.map(cartaoMural).join(""));
+      $(".mural-mais", box).innerHTML = M.fim ? `<p class="ajuda">${M.lista.length} criaç${M.lista.length === 1 ? "ão" : "ões"}</p>` : `<button type="button" class="btn btn-ghost" data-acao="mais">Carregar mais</button>`;
+    } catch (e) {
+      box.innerHTML = `<div class="erro-lote">${esc(e.message)}</div>`;
+    } finally {
+      if (pedido === M.pedido) M.carregando = false;
+    }
+  }
+  function itemDoMural(g) {
+    const meu = S.sessao && g.user_id === S.sessao.id;
+    const base = { ...g, formato: formatoDe(g.formato), copy: g.textos && g.textos.textos ? g.textos.textos : null, posicao: g.textos ? g.textos.posicao : null, layout: !!(g.textos && g.textos.layout), blocos: g.textos && g.textos.blocos ? g.textos.blocos : null, elementos: g.textos ? g.textos.elementos || null : null, limpa: g.textos ? g.textos.limpa_url || null : null };
+    // a arte de outra pessoa abre como cópia: ao salvar, vai para as criações de quem está editando
+    if (!meu) { base.origemId = g.id; base.dono = { id: S.sessao.id, email: S.sessao.email }; base.id = "copia-" + g.id; }
+    return base;
+  }
+  function verNoMural(g) {
+    const meu = S.sessao && g.user_id === S.sessao.id;
+    const j = janela(`
+      <div class="mural-ver">
+        <img src="${esc(g.url)}" alt="${esc(g.prompt || "")}" crossorigin="anonymous">
+        <div class="mural-ver-info">
+          <span class="g-autor"><span class="avatar-mini">${esc(nomeDoEmail(g.email)[0] || "?")}</span><b>${meu ? "Você" : esc(nomeDoEmail(g.email))}</b>${g.email && !meu ? `<small>${esc(g.email)}</small>` : ""}</span>
+          <p class="mural-ver-prompt">${esc(g.prompt || "Sem descrição")}</p>
+          <p class="ajuda">${new Date(g.criado_em).toLocaleString("pt-BR", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}${g.editado_por ? ` · editada por ${esc(nomeDoEmail(g.editado_por))}` : ""}</p>
+          <div class="linha-botoes">
+            <button type="button" class="btn btn-sm btn-primario" data-acao="editar">${meu ? "Editar" : "Editar cópia"}</button>
+            <button type="button" class="btn btn-sm btn-ghost" data-acao="ajustar">Ajustar no chat</button>
+            <button type="button" class="btn btn-sm btn-ghost" data-acao="baixar">Baixar</button>
+            <button type="button" class="btn btn-sm btn-ghost" data-acao="prompt">Usar este pedido</button>
+            ${podeApagar(g) ? `<button type="button" class="btn btn-sm btn-perigo" data-acao="apagar">Apagar</button>` : ""}
+          </div>
+        </div>
+      </div>`, { largura: 920 });
+    j.classList.add("janela-mural");
+    j.addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-acao]");
+      if (!b) return;
+      j.close();
+      acaoMural(g, b.dataset.acao);
+    });
+  }
+  async function acaoMural(g, acao) {
+    if (acao === "ver") return verNoMural(g);
+    if (acao === "baixar") return baixarUrl(g.url, `criadigi-${String(g.prompt || "arte").toLowerCase().normalize("NFD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "arte"}.jpg`);
+    if (acao === "prompt") { $("#prompt").value = g.prompt || ""; limparFocoSePreciso(); $("#prompt").focus(); toast("Pedido copiado para o chat. Ajuste e clique em Gerar.", "info"); return; }
+    if (acao === "apagar") {
+      if (!confirm("Apagar esta arte? Ela some para todo mundo e não dá para desfazer.")) return;
+      try {
+        await API.apagarGeracoes([g]);
+        S.mural.lista = S.mural.lista.filter((x) => x !== g);
+        const c = $(`[data-mid="${CSS.escape(String(g.id))}"]`); if (c) c.remove();
+        S.galeria = null;
+        toast("Arte apagada.", "ok");
+      } catch (e) { toast(e.message, "erro"); }
+      return;
+    }
+    const item = itemDoMural(g);
+    if (acao === "ajustar") {
+      if (!S.resultados.some((r) => r.id === item.id)) S.resultados.push(item);
+      definirFoco(item); $("#prompt").focus(); return;
+    }
+    await abrirNoEditor(item);
+    if (g.user_id !== S.sessao.id) toast(`Cópia da arte de ${nomeDoEmail(g.email)}. Ao salvar, ela vai para as suas criações; a original não muda.`, "info", 7000);
+  }
+  function limparFocoSePreciso() { if (S.foco && $("#limpar-foco")) $("#limpar-foco").click(); }
+  function montarMural() {
+    const box = $("#todas");
+    box.addEventListener("click", (ev) => {
+      if (ev.target.closest("[data-acao='mais']")) return carregarMural(false);
+      const card = ev.target.closest("[data-mid]");
+      const b = ev.target.closest("[data-acao]");
+      if (!card || !b) return;
+      const g = S.mural.lista.find((x) => String(x.id) === card.dataset.mid);
+      if (g) acaoMural(g, b.dataset.acao);
+    });
+    let t;
+    $("#todas-busca").addEventListener("input", (ev) => {
+      clearTimeout(t);
+      t = setTimeout(() => { S.mural.busca = ev.target.value; carregarMural(true); }, 300);
+    });
+    $("#todas-filtro").addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-f]");
+      if (!b) return;
+      S.mural.filtro = b.dataset.f;
+      $$("button", $("#todas-filtro")).forEach((x) => x.classList.toggle("on", x === b));
+      carregarMural(true);
+    });
+    // rolando até o fim, carrega mais
+    const obs = new IntersectionObserver((ent) => { if (ent.some((e) => e.isIntersecting) && !$("#todas").hidden) carregarMural(false); }, { rootMargin: "400px" });
+    const vigiar = () => { const m = $(".mural-mais", box); if (m && !m.dataset.vigiado) { m.dataset.vigiado = "1"; obs.observe(m); } };
+    new MutationObserver(vigiar).observe($("#todas-lista"), { childList: true });
+  }
+
   // ================================================================ minhas conversas
   // Só quem tem conta guarda conversas. Imagens entram pelo endereço salvo
   // (nada de imagem embutida no banco); o que não foi salvo some da conversa.
@@ -730,6 +887,8 @@
     $("#resultados").hidden = true;
     $("#galeria").hidden = true;
     $("#templates").hidden = true;
+    $("#conversas").hidden = true;
+    $("#todas").hidden = true;
     $("#editor").hidden = false;
     $("#palco-topo").hidden = true;
     painelDireito("ferramentas");
@@ -781,6 +940,8 @@
       $("#resultados").hidden = aba !== "resultados";
       $("#galeria").hidden = aba !== "galeria";
       $("#templates").hidden = aba !== "templates";
+      $("#conversas").hidden = aba !== "conversas";
+      $("#todas").hidden = aba !== "todas";
       if (veioDeTemplate && S.tpl) reabrirTemplate();
     }
   }

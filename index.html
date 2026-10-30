@@ -3,25 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CriaDigi · Crie e edite artes com IA na identidade Digi</title>
-<meta name="description" content="Peça pelo chat ou envie uma referência: a CriaDigi cria a arte com as cores, fontes, ícones e logo da Digi e entrega tudo editável, com textos, elementos e templates prontos para publicar.">
+<title>CriaDigi · Crie com IA e edite tudo na identidade Digi</title>
+<meta name="description" content="Peça no chat, recrie uma referência ou comece do zero: a CriaDigi aplica as cores, fontes e logo da Digi e entrega tudo editável, com textos, formas, ícones, camadas e templates.">
 <meta name="theme-color" content="#EA0356">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="CriaDigi · Digi">
 <meta property="og:locale" content="pt_BR">
 <meta property="og:url" content="https://digicriacao.github.io/criadigi/">
-<meta property="og:title" content="CriaDigi · Crie e edite artes com IA na identidade Digi">
-<meta property="og:description" content="Peça pelo chat ou envie uma referência: a CriaDigi cria a arte com as cores, fontes, ícones e logo da Digi e entrega tudo editável, com textos, elementos e templates prontos para publicar.">
-<meta property="og:image" content="https://digicriacao.github.io/criadigi/og-v2.jpg">
-<meta property="og:image:secure_url" content="https://digicriacao.github.io/criadigi/og-v2.jpg">
+<meta property="og:title" content="CriaDigi · Crie com IA e edite tudo na identidade Digi">
+<meta property="og:description" content="Peça no chat, recrie uma referência ou comece do zero: a CriaDigi aplica as cores, fontes e logo da Digi e entrega tudo editável, com textos, formas, ícones, camadas e templates.">
+<meta property="og:image" content="https://digicriacao.github.io/criadigi/og-v3.jpg">
+<meta property="og:image:secure_url" content="https://digicriacao.github.io/criadigi/og-v3.jpg">
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="CriaDigi: crie, recrie e edite artes com IA, sempre na identidade Digi">
+<meta property="og:image:alt" content="CriaDigi: crie com IA e edite textos, formas, ícones e camadas, sempre na identidade Digi">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="CriaDigi · Crie e edite artes com IA na identidade Digi">
-<meta name="twitter:description" content="Peça pelo chat ou envie uma referência: a CriaDigi cria a arte com as cores, fontes, ícones e logo da Digi e entrega tudo editável, com textos, elementos e templates prontos para publicar.">
-<meta name="twitter:image" content="https://digicriacao.github.io/criadigi/og-v2.jpg">
+<meta name="twitter:title" content="CriaDigi · Crie com IA e edite tudo na identidade Digi">
+<meta name="twitter:description" content="Peça no chat, recrie uma referência ou comece do zero: a CriaDigi aplica as cores, fontes e logo da Digi e entrega tudo editável, com textos, formas, ícones, camadas e templates.">
+<meta name="twitter:image" content="https://digicriacao.github.io/criadigi/og-v3.jpg">
 <script>
   /* aplica o tema antes de desenhar a página (evita piscar) */
   (function () {
@@ -79,6 +79,7 @@
         <div class="abas" role="tablist">
           <button role="tab" class="aba on" data-aba="resultados" aria-selected="true">Resultados</button>
           <button role="tab" class="aba" data-aba="templates" aria-selected="false">Templates</button>
+          <button role="tab" class="aba" data-aba="todas" aria-selected="false">Todas as criações</button>
           <button role="tab" class="aba" data-aba="galeria" aria-selected="false">Minhas criações</button>
           <button role="tab" class="aba" data-aba="conversas" aria-selected="false">Minhas conversas</button>
         </div>
@@ -104,6 +105,21 @@
       <div id="galeria" class="grade" hidden></div>
 
       <div id="conversas" class="grade" hidden></div>
+
+      <div id="todas" class="grade" hidden>
+        <div class="todas-topo">
+          <div class="todas-busca">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input type="search" id="todas-busca" placeholder="Buscar por pedido ou pessoa…" aria-label="Buscar criações">
+          </div>
+          <div class="segmentado segmentado-sm" id="todas-filtro">
+            <button type="button" data-f="" class="on">Todas</button>
+            <button type="button" data-f="outras">De outras pessoas</button>
+            <button type="button" data-f="minhas">Minhas</button>
+          </div>
+        </div>
+        <div id="todas-lista"></div>
+      </div>
 
       <div id="templates" hidden>
         <div class="chips" id="tpl-categorias" role="tablist" aria-label="Categorias"></div>
